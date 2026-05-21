@@ -19,7 +19,6 @@ dist/
 
 # Secrets & local files
 .env
-.env.example
 .env.enc
 .env.enc.salt
 db.sqlite3
