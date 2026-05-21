@@ -1,13 +1,13 @@
-# SPD Bridge (SePrinder Bridge)
+# SPD Klipper Plugin (SePrinder Klipper Plugin)
 
-SPD Bridge là phần mềm trung gian (agent) đóng vai trò kết nối trực tiếp các máy in 3D với hệ thống máy chủ **SPD Server** và **SPD Connect** trong hệ sinh thái SePrinder.
+SPD Klipper Plugin là phần mềm trung gian (agent) đóng vai trò kết nối trực tiếp các máy in 3D với hệ thống máy chủ **SPD Server** và **SPD Connect** trong hệ sinh thái SePrinder.
 
 ## 1. Giới thiệu
 
-Hệ thống được thiết kế để chạy trực tiếp trên các bộ giải pháp kết nối (như Raspberry Pi, Orange Pi hoặc máy tính Windows) gần máy in. SPD Bridge chịu trách nhiệm:
+Hệ thống được thiết kế để chạy trực tiếp trên các bộ giải pháp kết nối (như Raspberry Pi, Orange Pi hoặc máy tính Windows) gần máy in. SPD Klipper Plugin chịu trách nhiệm:
 
 - **Giám sát thời gian thực**: Theo dõi trạng thái in, nhiệt độ và tiến độ của máy in 3D.
-- **Phát hiện lỗi bằng AI**: Tích hợp mô hình học máy để tự động phát hiện các lỗi in (như "spaghetti", bong bàn in) thông qua camera.
+<!-- - **Phát hiện lỗi bằng AI**: Tích hợp mô hình học máy để tự động phát hiện các lỗi in (như "spaghetti", bong bàn in) thông qua camera. -->
 - **Điều khiển từ xa**: Nhận lệnh từ SPD Server (qua SPD Connect) để bắt đầu, tạm dừng hoặc hủy lệnh in.
 - **Quản lý dữ liệu cục bộ**: Lưu trữ cấu hình và log hoạt động thông qua cơ sở dữ liệu SQLite tích hợp.
 
@@ -28,7 +28,7 @@ Hệ thống được thiết kế để chạy trực tiếp trên các bộ gi
 
 ### Yêu cầu hệ thống
 - Python 3.11 hoặc cao hơn.
-- Camera USB hoặc CSI (nếu dùng tính năng AI).
+<!-- - Camera USB hoặc CSI (nếu dùng tính năng AI). -->
 - Kết nối internet ổn định.
 
 ### Cài đặt môi trường (Local)

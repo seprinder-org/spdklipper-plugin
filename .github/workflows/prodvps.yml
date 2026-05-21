@@ -1,0 +1,250 @@
+name: Build & Release Multi-architecture to ProdVps
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'docker/**'
+      - 'src/**'
+      - 'plugin/main.py'
+      - '.github/workflows/prodvps.yml'
+  workflow_dispatch:
+
+jobs:
+  build_aarch64:
+    runs-on: ubuntu-latest
+    environment: prod
+    if: contains(github.event.head_commit.message, 'build and publish to prod') || github.event_name == 'workflow_dispatch'
+    
+    env:
+      HOST_SERVER:           ${{ secrets.HOST_SERVER }}
+      HOST_CONNECT:         ${{ secrets.HOST_CONNECT }}
+      PATH_DB:               ${{ secrets.PATH_DB }}
+      SPD_SECRET_KEY:        ${{ secrets.SPD_SECRET_KEY }}
+    
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v4
+
+    - name: Generate .env file from secrets
+      run: |
+            cat <<EOF > .env
+            HOST_SERVER=${HOST_SERVER}
+            HOST_CONNECT=${HOST_CONNECT}
+            PATH_DB=${PATH_DB}
+            SPD_SECRET_KEY=${SPD_SECRET_KEY}
+            EOF
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build Docker image for Raspberry Pi (ARM64)
+      run: |
+        docker buildx build \
+          -f docker/Dockerfile-aarch64 \
+          --platform linux/arm64 \
+          -t spdbridge-aarch64:latest \
+          --load \
+          .
+        echo "Docker image built successfully for aarch64"
+
+    - name: Save Docker image as artifact
+      run: |
+        docker save spdbridge-aarch64:latest | gzip > spdbridge-aarch64.tar.gz
+        ls -lh spdbridge-aarch64.tar.gz
+
+    - name: Upload aarch64 artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: spdbridge-aarch64
+        path: ./spdbridge-aarch64.tar.gz
+        retention-days: 1
+
+  build_x86_64:
+    runs-on: ubuntu-latest
+    environment: prod
+    if: contains(github.event.head_commit.message, 'build and publish to prod') || github.event_name == 'workflow_dispatch'
+    
+    env:
+      HOST_SERVER:           ${{ secrets.HOST_SERVER }}
+      HOST_CONNECT:         ${{ secrets.HOST_CONNECT }}
+      PATH_DB:               ${{ secrets.PATH_DB }}
+      SPD_SECRET_KEY:        ${{ secrets.SPD_SECRET_KEY }}
+    
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v4
+
+    - name: Generate .env file from secrets
+      run: |
+            cat <<EOF > .env
+            HOST_SERVER=${HOST_SERVER}
+            HOST_CONNECT=${HOST_CONNECT}
+            PATH_DB=${PATH_DB}
+            SPD_SECRET_KEY=${SPD_SECRET_KEY}
+            EOF
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          build-essential libffi-dev libssl-dev libjpeg-dev \
+          zlib1g-dev libopenblas-dev
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r scripts/requirements.txt
+
+    - name: Package source code as deployable archive
+      run: |
+        # Create a deployable tar.gz with source + .env
+        tar -czf spdbridge-x86_64.tar.gz \
+          --exclude='.venv' \
+          --exclude='__pycache__' \
+          --exclude='*.pyc' \
+          --exclude='node_modules' \
+          --exclude='.git' \
+          # --exclude='detection/spd_dataset/capture' \
+          plugin/ src/ libs/ constants/ utils/ static/ scripts/ .env
+        ls -lh spdbridge-x86_64.tar.gz
+
+    - name: Upload x86_64 artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: spdbridge-x86_64
+        path: ./spdbridge-x86_64.tar.gz
+        retention-days: 1
+
+  build_win64:
+    runs-on: windows-latest
+    environment: prod
+    if: contains(github.event.head_commit.message, 'build and publish to prod') || github.event_name == 'workflow_dispatch'
+    
+    env:
+      HOST_SERVER:           ${{ secrets.HOST_SERVER }}
+      HOST_CONNECT:         ${{ secrets.HOST_CONNECT }}
+      PATH_DB:               ${{ secrets.PATH_DB }}
+      SPD_SECRET_KEY:        ${{ secrets.SPD_SECRET_KEY }}
+    
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v4
+
+    - name: Generate .env file from secrets
+      shell: bash
+      run: |
+            cat <<EOF > .env
+            HOST_SERVER=${HOST_SERVER}
+            HOST_CONNECT=${HOST_CONNECT}
+            PATH_DB=${PATH_DB}
+            SPD_SECRET_KEY=${SPD_SECRET_KEY}
+            EOF
+
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r scripts/requirements.txt
+
+    - name: Package source code as deployable archive
+      shell: bash
+      run: |
+        tar -czf spdbridge-win64.tar.gz \
+          --exclude='.venv' \
+          --exclude='__pycache__' \
+          --exclude='*.pyc' \
+          --exclude='node_modules' \
+          --exclude='.git' \
+          # --exclude='detection/spd_dataset/capture' \
+          plugin/ src/ libs/ constants/ utils/ static/ scripts/ .env
+        ls -lh spdbridge-win64.tar.gz
+
+    - name: Upload win64 artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: spdbridge-win64
+        path: ./spdbridge-win64.tar.gz
+        retention-days: 1
+
+  release:
+    runs-on: ubuntu-latest
+    environment: prod
+    needs: [build_aarch64, build_x86_64, build_win64]
+    if: (contains(github.event.head_commit.message, 'build and publish to prod') || github.event_name == 'workflow_dispatch') && success()
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v4
+
+    - name: Download aarch64 artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: spdbridge-aarch64
+        path: ./
+
+    - name: Download win64 artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: spdbridge-win64
+        path: ./
+
+    - name: Download x86_64 artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: spdbridge-x86_64
+        path: ./
+
+    - name: Create tag
+      run: |
+        TAG="ProdVps-release-${{ github.run_number }}"
+        echo "TAG_NAME=$TAG" >> $GITHUB_ENV
+        git config user.name "${{ github.actor }}"
+        git config user.email "${{ github.actor }}@users.noreply.github.com"
+        git fetch --tags
+        git tag "$TAG"
+        git push origin "$TAG"
+
+    - name: Upload to GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ env.TAG_NAME }}
+        name: Release ${{ env.TAG_NAME }}
+        files: |
+          spdbridge-aarch64.tar.gz
+          spdbridge-x86_64.tar.gz
+          spdbridge-win64.tar.gz
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Delete old releases
+      uses: dev-drprasad/delete-older-releases@v0.3.3
+      with:
+        keep_latest: 3
+        delete_tags: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,30 @@
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.venv/
+
+# IDE
+.vscode/
+
+# Node
+node_modules/
+
+# Build artifacts
+build/
+temp_*/
+dist/
+*.tar.gz
+
+# Secrets & local files
+.env
+.env.enc
+.env.enc.salt
+db.sqlite3
+
+# dataset
+# detection/spd_dataset/capture
+# detection/spd_dataset/failure/*
+# detection/spd_dataset/success/*
+# detection/

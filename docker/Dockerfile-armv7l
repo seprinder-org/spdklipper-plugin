@@ -1,0 +1,65 @@
+# SPD Bridge - Raspberry Pi (ARMv7l / 32-bit) Production Image
+# Runs source code directly via uvicorn (no PyInstaller)
+
+FROM python:3.9-slim-bullseye
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends --fix-missing \
+    build-essential \
+    python3-dev \
+    libffi-dev \
+    libssl-dev \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libhdf5-dev \
+    libatlas-base-dev \
+    libopenblas-dev \
+    liblapack-dev \
+    gfortran \
+    cmake \
+    protobuf-compiler \
+    libprotoc-dev \
+    libprotobuf-dev \
+    libwebp-dev \
+    libjpeg62-turbo-dev \
+    libpng-dev \
+    libtiff5-dev \
+    libavcodec-dev \
+    libavformat-dev \
+    libavutil-dev \
+    libswscale-dev \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Upgrade pip and install build dependencies
+RUN pip install --upgrade pip "setuptools<81" wheel jaraco.text platformdirs
+
+# Install critical dependencies first
+RUN pip install numpy==1.24.3 protobuf==3.20.3 --extra-index-url https://www.piwheels.org/simple
+
+# Install onnx separately with shared protobuf
+RUN CMAKE_ARGS="-DONNX_USE_PROTOBUF_SHARED_LIBS=ON" pip install onnx==1.14.1 --prefer-binary --extra-index-url https://www.piwheels.org/simple
+
+# Copy source code
+COPY . .
+
+# Install remaining Python dependencies
+RUN pip install -r scripts/requirements.txt --prefer-binary --extra-index-url https://www.piwheels.org/simple
+
+# Manually install onnxruntime from pre-built wheel for armv7l/python3.9
+RUN curl -L -O https://github.com/nknytk/built-onnxruntime-for-raspberrypi-linux/raw/master/wheels/bullseye/onnxruntime-1.14.1-cp39-cp39-linux_armv7l.whl && \
+    pip install onnxruntime-1.14.1-cp39-cp39-linux_armv7l.whl && \
+    rm onnxruntime-1.14.1-cp39-cp39-linux_armv7l.whl
+
+# Smoke test
+RUN python3 -c "import sys; sys.path.insert(0, '.'); from src.library.handler import createModel; print('--- Smoke Test Passed ---')"
+
+# Expose port
+EXPOSE 1122
+
+# Run directly with Python
+CMD ["python3", "plugin/main.py"]

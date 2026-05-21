@@ -1,0 +1,35 @@
+from pydantic import BaseModel
+
+class mUser(BaseModel):
+    v_id: str
+    v_name: str
+    v_username: str
+    v_email: str
+    a_password: str
+    v_gender: str
+    v_birthday: str
+    o_phone_number: str
+    v_role_id: str
+    o_country_id: str
+    o_language_code: str
+    o_theme_name: str
+    o_is_taxable: str
+    o_is_private: str
+    o_api_key: str
+    o_following_id: str
+    v_verified_phone_timestamp: str
+    a_verified_phone_token: str
+    a_modified_phone_timestamp: str
+    a_modified_phone_token: str
+    v_verified_email_timestamp: str
+    a_verified_email_token: str
+    a_modified_email_timestamp: str
+    a_modified_email_token: str
+    a_modified_password_timestamp: str
+    a_modified_password_token: str
+    a_is_founder: str
+    o_source_id: str
+    v_created_timestamp: str
+    v_modified_timestamp: str
+    a_note: str
+    a_result: str

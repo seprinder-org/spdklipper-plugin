@@ -1,0 +1,154 @@
+name: "[ARCHIVED] Build & Release Multi-architecture to Local105"
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build_aarch64:
+    runs-on: ubuntu-latest
+    environment: Local105
+    if: contains(github.event.head_commit.message, 'build and release to Local105') || github.event_name == 'workflow_dispatch'
+    
+    env:
+      HOST_SERVER:           ${{ secrets.HOST_SERVER }}
+      HOST_CONNECT:         ${{ secrets.HOST_CONNECT }}
+      PATH_DB:               ${{ secrets.PATH_DB }}
+      SPD_SECRET_KEY:        ${{ secrets.SPD_SECRET_KEY }}
+
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v4
+
+    - name: Generate .env file from secrets
+      run: |
+            cat <<EOF > .env
+            HOST_SERVER=${HOST_SERVER}
+            HOST_CONNECT=${HOST_CONNECT}
+            PATH_DB=${PATH_DB}
+            SPD_SECRET_KEY=${SPD_SECRET_KEY}
+            EOF
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build binary for Raspberry Pi (ARM64) and export
+      run: |
+        docker buildx build \
+          -f docker/Dockerfile-aarch64 \
+          --platform linux/arm64 \
+          --output type=local,dest=output-aarch64 \
+          .
+        ls -lh output-aarch64
+        mv output-aarch64/spdbridge ./spdbridge-aarch64
+        chmod +x ./spdbridge-aarch64
+
+    - name: Upload aarch64 artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: spdbridge-aarch64
+        path: ./spdbridge-aarch64
+        retention-days: 1
+
+  build_armv7l:
+    runs-on: ubuntu-latest
+    environment: Local105
+    if: contains(github.event.head_commit.message, 'build and release to Local105') || github.event_name == 'workflow_dispatch'
+    
+    env:
+      HOST_SERVER:           ${{ secrets.HOST_SERVER }}
+      HOST_CONNECT:         ${{ secrets.HOST_CONNECT }}
+      PATH_DB:               ${{ secrets.PATH_DB }}
+      SPD_SECRET_KEY:        ${{ secrets.SPD_SECRET_KEY }}
+
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v4
+
+    - name: Generate .env file from secrets
+      run: |
+            cat <<EOF > .env
+            HOST_SERVER=${HOST_SERVER}
+            HOST_CONNECT=${HOST_CONNECT}
+            PATH_DB=${PATH_DB}
+            SPD_SECRET_KEY=${SPD_SECRET_KEY}
+            EOF
+            
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+      with:
+        platforms: arm
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build ARMv7 binary and export
+      run: |
+        docker buildx build \
+          -f docker/Dockerfile-armv7l \
+          --platform linux/arm/v7 \
+          --output type=local,dest=output-armv7l \
+          .
+        ls -lh output-armv7l
+        mv output-armv7l/spdbridge ./spdbridge-armv7l
+        chmod +x ./spdbridge-armv7l
+
+    - name: Upload armv7l artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: spdbridge-armv7l
+        path: ./spdbridge-armv7l
+        retention-days: 1
+
+  release:
+    runs-on: ubuntu-latest
+    environment: Local105
+    needs: [build_aarch64, build_armv7l]
+    if: (contains(github.event.head_commit.message, 'build and release to Local105') || github.event_name == 'workflow_dispatch') && success()
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v4
+
+    - name: Download aarch64 artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: spdbridge-aarch64
+        path: ./
+
+    - name: Download armv7l artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: spdbridge-armv7l
+        path: ./
+
+    - name: Create tag
+      run: |
+        TAG="Local105-release-${{ github.run_number }}"
+        echo "TAG_NAME=$TAG" >> $GITHUB_ENV
+        git config user.name "${{ github.actor }}"
+        git config user.email "${{ github.actor }}@users.noreply.github.com"
+        git fetch --tags
+        git tag "$TAG"
+        git push origin "$TAG"
+
+    - name: Upload to GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ env.TAG_NAME }}
+        name: Release ${{ env.TAG_NAME }}
+        files: |
+          spdbridge-aarch64
+          spdbridge-armv7l
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

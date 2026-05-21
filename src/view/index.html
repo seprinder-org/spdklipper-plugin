@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Index SEPRINDER</title>
+  <link rel="icon" href="/public/image/favicon.ico" type="image/x-icon">
+
+  <!-- Tailwindcss -->
+  <link href="{{url_for('static',path='/css/app.css')}}" rel="stylesheet" />
+</head>
+
+<body class="flex items-center justify-center min-h-screen bg-gray-100 font-sans">
+  <div class="flex flex-col items-center gap-6 w-full">
+
+    <!-- Welcome box -->
+    <div class="bg-white p-6 rounded-lg shadow-md w-[50%] text-center">
+      <div class="flex flex-row gap-2 mb-5 w-full justify-around">
+        <div class="mt-4 w-3/5">
+          <h2 class="mb-4 text-xl font-bold text-gray-800">SEPRINDER</h2>
+        </div>
+        <!-- Ping button -->
+        <div class="mt-4 w-1/5">
+          <button id="checkConnection"
+            class="w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors hover:cursor-pointer">
+            Check connection
+          </button>
+        </div>
+        <div class="mt-4 w-1/5">
+          <button id="refresh"
+            class="w-full py-2 px-4 bg-green-600 hover:bg-green-700 text-white rounded-md transition-colors hover:cursor-pointer">
+            Refresh
+          </button>
+        </div>
+      </div>
+      <div class="flex flex-row justify-around mb-4 w-full gap-4">
+        <div class="mb-4 text-left flex flex-col gap-2">
+          <div class="mb-2 text-left">
+            <label class="block mb-1 text-sm font-semibold text-gray-600">Username:</label>
+            <p class="p-2 rounded border border-gray-300 bg-gray-50">{{ username }}</p>
+          </div>
+
+          <div class="mb-2 text-left">
+            <label class="block mb-1 text-sm font-semibold text-gray-600">Fullname:</label>
+            <p class="p-2 rounded border border-gray-300 bg-gray-50">{{ fullname }}</p>
+          </div>
+        </div>
+
+        <div class="mb-4 text-left flex flex-col gap-2">
+          <div class="mb-2 text-left">
+            <label class="block mb-1 text-sm font-semibold text-gray-600">Machine Name:</label>
+            <p class="p-2 rounded border border-gray-300 bg-gray-50">{{ machine_name }}</p>
+          </div>
+
+          <div class="mb-2 text-left">
+            <label class="block mb-1 text-sm font-semibold text-gray-600">Machine Description:</label>
+            <p class="p-2 rounded border border-gray-300 bg-gray-50">{{ machine_description }}</p>
+          </div>
+
+          <div class="mb-2 text-left">
+            <label class="block mb-1 text-sm font-semibold text-gray-600">Machine ID:</label>
+            <p class="p-2 rounded border border-gray-300 bg-gray-50">{{ machine_id }}</p>
+          </div>
+        </div>
+
+        <div class="mb-4 text-left flex flex-col gap-2">
+          <div class="mb-2 text-left">
+            <label class="block mb-1 text-sm font-semibold text-gray-600">Is Auto Eject?</label>
+            <p class="p-2 rounded border border-gray-300 bg-gray-50">{{ machine_is_auto_eject }}</p>
+          </div>
+
+          <div class="mb-2 text-left">
+            <label class="block mb-1 text-sm font-semibold text-gray-600">Is Private?</label>
+            <p class="p-2 rounded border border-gray-300 bg-gray-50">{{ machine_is_private }}</p>
+          </div>
+        </div>
+
+
+      </div>
+
+      <div class="flex flex-col items-center gap-2 w-full">
+        <!-- Logout -->
+        <form action="/logout" method="post" class="w-full">
+          <button type="submit"
+            class="w-full mt-4 bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded-md text-base">
+            Logout
+          </button>
+        </form>
+      </div>
+
+    </div>
+
+    <!-- Log box -->
+    <!-- Log box with Tabs -->
+    <div class="bg-white p-6 rounded-lg shadow-md w-[50%] text-left">
+      <!-- Tabs Header -->
+      <div class="flex border-b border-gray-200 mb-4">
+        <button id="tab-logs-btn"
+          class="py-2 px-4 text-blue-600 border-b-2 border-blue-600 font-semibold focus:outline-none">Server
+          Logs</button>
+        <button id="tab-camera-btn"
+          class="py-2 px-4 text-gray-500 hover:text-blue-600 focus:outline-none">Camera</button>
+      </div>
+
+      <!-- Server Logs Tab -->
+      <div id="tab-logs-content">
+        <h2 class="mb-2 text-lg font-semibold text-gray-800">Server Logs</h2>
+        <div id="log-output"
+          class="max-h-52 overflow-y-auto border border-gray-200 p-2 bg-gray-50 font-mono text-xs whitespace-pre-wrap break-words">
+          {% for log in logs %}
+          <p class="py-0.5 border-b border-dotted border-gray-200 last:border-0">{{ log }}</p>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- Camera Tab -->
+      <div id="tab-camera-content"
+        class="hidden flex flex-col justify-center items-center bg-gray-50 border border-gray-200 min-h-[200px] p-2">
+        <h3 id="camera-title" class="mb-2 text-md font-semibold text-gray-700 hidden"></h3>
+        <img id="camera-feed" src="" alt="Latest Processed Capture"
+          class="hidden max-w-full max-h-[500px] object-contain" />
+        <p id="camera-placeholder" class="text-gray-400">No processed image available</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Tab switching
+    const tabLogsBtn = document.getElementById('tab-logs-btn');
+    const tabCameraBtn = document.getElementById('tab-camera-btn');
+    const tabLogsContent = document.getElementById('tab-logs-content');
+    const tabCameraContent = document.getElementById('tab-camera-content');
+
+    tabLogsBtn.addEventListener('click', () => {
+      tabLogsBtn.classList.add('text-blue-600', 'border-b-2', 'border-blue-600');
+      tabLogsBtn.classList.remove('text-gray-500');
+      tabCameraBtn.classList.remove('text-blue-600', 'border-b-2', 'border-blue-600');
+      tabCameraBtn.classList.add('text-gray-500');
+
+      tabLogsContent.classList.remove('hidden');
+      tabCameraContent.classList.add('hidden');
+    });
+
+    tabCameraBtn.addEventListener('click', () => {
+      tabCameraBtn.classList.add('text-blue-600', 'border-b-2', 'border-blue-600');
+      tabCameraBtn.classList.remove('text-gray-500');
+      tabLogsBtn.classList.remove('text-blue-600', 'border-b-2', 'border-blue-600');
+      tabLogsBtn.classList.add('text-gray-500');
+
+      tabCameraContent.classList.remove('hidden');
+      tabLogsContent.classList.add('hidden');
+    });
+
+    // Camera WebSocket
+    const cameraFeed = document.getElementById('camera-feed');
+    const cameraPlaceholder = document.getElementById('camera-placeholder');
+    const cameraTitle = document.getElementById('camera-title');
+    let ws;
+
+    function connectWebSocket() {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${protocol}//${window.location.host}/ws/camera`);
+
+      ws.onopen = () => {
+        console.log("Connected to Camera WebSocket");
+        // Optional: Fetch latest on connect to not wait for next error
+        fetchLatestCapture();
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.url) {
+            updateImage(data.url, data.title);
+          }
+        } catch (e) {
+          console.error("Error parsing WebSocket message:", e);
+        }
+      };
+
+      ws.onclose = () => {
+        console.log("WebSocket disconnected. Reconnecting in 3s...");
+        setTimeout(connectWebSocket, 3000);
+      };
+
+      ws.onerror = (err) => {
+        console.error("WebSocket error:", err);
+        ws.close();
+      };
+    }
+
+    function updateImage(url, title = null) {
+      cameraFeed.src = url;
+      cameraFeed.classList.remove('hidden');
+      cameraPlaceholder.classList.add('hidden');
+
+      if (title) {
+        cameraTitle.innerText = title;
+        cameraTitle.classList.remove('hidden');
+      } else {
+        cameraTitle.classList.add('hidden');
+      }
+    }
+
+    async function fetchLatestCapture() {
+      try {
+        const response = await fetch('/latest-capture');
+        const data = await response.json();
+        if (data.url) {
+          updateImage(data.url);
+        }
+      } catch (e) {
+        console.error("Error fetching latest capture:", e);
+      }
+    }
+
+    // Start WebSocket connection
+    connectWebSocket();
+
+    const checkConnectionButton = document.getElementById('checkConnection');
+    checkConnectionButton.addEventListener('click', async () => {
+      try {
+        const response = await fetch('/connection/check', { method: 'POST' });
+        const result = await response.json();
+        alert(result.status + ': ' + result.message);
+      } catch (error) {
+        console.error('Lỗi khi kiểm tra kết nối:', error);
+        alert('Lỗi khi gửi yêu cầu kiểm tra kết nối đến máy chủ.');
+      }
+    });
+
+    const refreshButton = document.getElementById('refresh');
+    refreshButton.addEventListener('click', async () => {
+      try {
+        const originalText = refreshButton.innerText;
+        refreshButton.innerText = 'Refreshing...';
+        refreshButton.disabled = true;
+
+        const response = await fetch('/refresh', { method: 'POST' });
+        const result = await response.json();
+
+        if (result.status === 'success') {
+          // Reload the page to show updated information
+          window.location.reload();
+        } else {
+          alert('Refresh failed: ' + result.message);
+          refreshButton.innerText = originalText;
+          refreshButton.disabled = false;
+        }
+      } catch (error) {
+        console.error('Lỗi khi refresh:', error);
+        alert('Lỗi khi gửi yêu cầu refresh đến máy chủ.');
+        refreshButton.innerText = 'Refresh';
+        refreshButton.disabled = false;
+      }
+    });
+  </script>
+</body>
+
+</html>

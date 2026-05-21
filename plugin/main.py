@@ -1,0 +1,445 @@
+import ipaddress
+import os
+import shutil
+import uvicorn
+import socket
+import sys
+from fastapi import Depends, FastAPI, Request, Form, status
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
+from sqlmodel import Session, select
+from contextlib import asynccontextmanager
+from src.database.sqlite3 import Secret, ServerLog, SocketStatus, getSession, createDbAndTbl
+from src.controller import cUser, cMachine, cAgent
+import asyncio
+import json
+import sys
+from pathlib import Path
+import os
+from src.library import handler as hdl
+from libs import socket_manager as soc
+from fastapi.responses import JSONResponse
+from fastapi import WebSocket, WebSocketDisconnect
+from constants import AGENT_DOMAIN as agentDomain, AGENT_DEVICE as agentDevice, PORT as port
+
+import datetime
+
+# print('For deployment')
+
+# Start load env.
+from dotenv import load_dotenv
+
+if getattr(sys, 'frozen', False):
+    # Đang chạy từ file .exe/.bin đã được PyInstaller build
+    base_path = Path(sys._MEIPASS)
+    exe_path = Path(sys.executable).parent
+else:
+    base_path = Path(os.getcwd())
+    exe_path = base_path
+
+load_dotenv(dotenv_path=base_path / ".env", override=True) # Load environment variables at the very beginning, overriding existing ones
+# End load env.
+
+# --- Security: Restrict .env file permissions on startup ---
+# On Unix systems (Raspberry Pi), ensure .env is owner-read-only
+_env_path = base_path / ".env"
+if _env_path.exists():
+    try:
+        current_perms = os.stat(_env_path).st_mode & 0o777
+        # Only tighten permissions if they're too permissive
+        if current_perms > 0o600:
+            os.chmod(_env_path, 0o600)
+    except Exception:
+        pass  # Best-effort on Windows or permission-limited environments
+# --- End security ---
+
+# Function to check if a port is in use
+def is_port_in_use(port):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(('localhost', port)) == 0
+
+
+while is_port_in_use(port):
+    port += 1
+
+
+# Initialize Jinja2Templates
+templates = Jinja2Templates(directory=base_path / "src" / "view")
+
+# Custom stdout writer to capture logs and save to DB
+class LogWriter:
+    def __init__(self, original_stdout, db_session_generator):
+        self.original_stdout = original_stdout
+        self.db_session_generator = db_session_generator
+
+    def write(self, message):
+        self.original_stdout.write(message)
+        stripped_message = message.strip()
+        if stripped_message: # Only process non-empty lines
+            # # Define keywords to filter for
+            # important_keywords = ["connection", "establish", "disconnect", "retrying connect", "Lỗi:", "Đang cố gắng đăng nhập", "Đăng nhập thành công", "Người dùng đã đăng xuất"]
+
+            # # Check if any important keyword is in the message (case-insensitive)
+            # if any(keyword.lower() in stripped_message.lower() for keyword in important_keywords):
+            #     # Run DB operations in a separate thread to avoid blocking the event loop
+            #     asyncio.create_task(self._save_log_to_db(stripped_message))
+
+            asyncio.create_task(self._save_log_to_db(stripped_message))
+
+    async def _save_log_to_db(self, message):
+        # Use asyncio.to_thread for blocking DB operations
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, self._perform_db_operations, message)
+
+    def _perform_db_operations(self, message):
+        # Call the generator function to get the generator object
+        session_generator_obj = self.db_session_generator()
+        with next(session_generator_obj) as session:
+            new_log = ServerLog(message=message)
+            session.add(new_log)
+            session.commit()
+            session.refresh(new_log)
+
+            # Giới hạn số lượng log là 100. Nếu vượt quá, ghi đè log cũ nhất.
+            total_logs = len(session.exec(select(ServerLog)).all())
+            if total_logs >= 100:
+                # Lấy log cũ nhất để ghi đè
+                oldest_log = session.exec(select(ServerLog).order_by(ServerLog.timestamp).limit(1)).first()
+                if oldest_log:
+                    session.delete(oldest_log)
+                    session.commit()
+
+    def flush(self):
+        self.original_stdout.flush()
+
+# Bắt đầu khởi tạo database.
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # IMPORTANT: Do NOT call deleteDb() here — that would destroy all
+    # encrypted secrets (access tokens, refresh tokens) on every restart.
+    # The database is persistent and tokens survive across reboots.
+    createDbAndTbl()
+
+    # Delete dataset.
+    hdl.deleteDataset()
+
+    # Create dataset.
+    hdl.createDataset()
+
+    # Create model.
+    await hdl.createModel()
+
+    asyncio.create_task(periodic_check_connection())
+    asyncio.create_task(periodic_refresh_session())
+    # Redirect stdout to our custom writer
+    sys.stdout = LogWriter(sys.stdout, getSession)
+
+    yield
+
+    # Restore original stdout when app shuts down
+    sys.stdout = sys.__stdout__
+# Kết thúc khởi tạo database.
+
+app = FastAPI(lifespan=lifespan)
+
+public_path = base_path / "src" / "public"
+
+# Fallback if the path is not found directly in the PyInstaller bundle's base_path
+if not public_path.is_dir():
+    # This might happen if src/public is not directly at base_path/src/public
+    # but perhaps at the root of the temporary directory or another location
+    # Try to find it relative to the script's current working directory
+    public_path = Path(os.getcwd()) / "src" / "public"
+    if not public_path.is_dir():
+        # As a last resort, try relative to the script's file location
+        public_path = Path(os.path.dirname(os.path.abspath(__file__))) / "src" / "public"
+
+app.mount("/public", StaticFiles(directory=public_path), name="public")
+
+static_path = base_path / "static"
+
+# Fallback if the path is not found directly in the PyInstaller bundle's base_path
+if not static_path.is_dir():
+    # This might happen if src/static is not directly at base_path/src/static
+    # but perhaps at the root of the temporary directory or another location
+    # Try to find it relative to the script's current working directory
+    static_path = Path(os.getcwd()) / "static"
+    if not static_path.is_dir():
+        # As a last resort, try relative to the script's file location
+        static_path = Path(os.path.dirname(os.path.abspath(__file__))) / "static"
+
+app.mount("/static", StaticFiles(directory=static_path), name="static")
+
+capture_path = exe_path / "detection" / "spd_dataset" / "capture"
+os.makedirs(capture_path, exist_ok=True)
+app.mount("/captures", StaticFiles(directory=capture_path), name="captures")
+
+@app.get("/", response_class=HTMLResponse)
+async def read_root(request: Request, session: Session = Depends(getSession)):
+    logs = session.exec(select(ServerLog).order_by(ServerLog.timestamp.desc()).limit(10)).all()
+    formatted_logs = [f"[{log.timestamp.strftime('%Y-%m-%d %H:%M:%S')}] {log.message}" for log in logs]
+
+    socket_status_entry = session.exec(select(SocketStatus).limit(1)).first()
+    is_socket_connected = socket_status_entry.is_connected if socket_status_entry else False
+
+    tempProfileUser = await hdl.getSecret('profile_user', 'session')
+    if tempProfileUser:
+        profileUser = json.loads(tempProfileUser)
+        username = profileUser['v_username']
+        if username:
+            tempProfileMachine = await hdl.getSecret('profile_machine', 'session')
+            if tempProfileMachine:
+                profileMachine = json.loads(tempProfileMachine)
+                machine_id = profileMachine['o_identify_number']
+                if machine_id:
+                    return templates.TemplateResponse(
+                    "index.html",
+                    {
+                        "request": request,
+                        "username": username,
+                        "fullname": profileUser['v_name'],
+                        "machine_id": machine_id,
+                        "machine_name": profileMachine['v_name'],
+                        "machine_description": profileMachine['v_description'],
+                        "machine_is_auto_eject": profileMachine['v_is_auto_eject'],
+                        "machine_is_private": profileMachine['o_is_private'],
+                        "logs": formatted_logs, # Pass current logs to template
+                        "is_socket_connected": is_socket_connected # Pass socket status to template
+                    }
+                )
+    return templates.TemplateResponse("login.html", {"request": request, "logs": formatted_logs}) # Pass current logs to template
+
+@app.get("/login", response_class=HTMLResponse)
+async def login(request: Request, session: Session = Depends(getSession)):
+    logs = session.exec(select(ServerLog).order_by(ServerLog.timestamp.desc()).limit(100)).all()
+    formatted_logs = [f"[{log.timestamp.strftime('%Y-%m-%d %H:%M:%S')}] {log.message}" for log in logs]
+
+    tempProfileUser = await hdl.getSecret('profile_user', 'session')
+    if tempProfileUser:
+        profileUser = json.loads(tempProfileUser)
+        username = profileUser['v_username']
+        if username:
+            tempProfileMachine = await hdl.getSecret('profile_machine', 'session')
+            if tempProfileMachine:
+                profileMachine = json.loads(tempProfileMachine)
+                machine_id = profileMachine['o_identify_number']
+                if machine_id:
+                    return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
+    return templates.TemplateResponse("login.html", {"request": request, "logs": formatted_logs}) # Pass current logs to template
+
+@app.post("/login", response_class=HTMLResponse)
+async def login(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    machineIdentifyNumber: str = Form(...),
+    session: Session = Depends(getSession) # Inject session for logging
+):
+    print(f"Đang cố gắng đăng nhập với Username: {username}, Machine ID: {machineIdentifyNumber}")
+    agent_id = await cAgent.verify(agentDomain, agentDevice)
+    if agent_id == '':
+        print("Lỗi: Xác minh đại lý thất bại. Đang dừng chương trình.")
+        logs = session.exec(select(ServerLog).order_by(ServerLog.timestamp.desc()).limit(100)).all()
+        formatted_logs = [f"[{log.timestamp.strftime('%Y-%m-%d %H:%M:%S')}] {log.message}" for log in logs]
+        return templates.TemplateResponse("login.html", {"request": request, "error": "Xác minh đại lý thất bại.", "logs": formatted_logs})
+
+    user_id = await cUser.verify(username, password)
+    if user_id == '':
+        print("Lỗi: Xác minh người dùng thất bại. Đang dừng chương trình.")
+        logs = session.exec(select(ServerLog).order_by(ServerLog.timestamp.desc()).limit(100)).all()
+        formatted_logs = [f"[{log.timestamp.strftime('%Y-%m-%d %H:%M:%S')}] {log.message}" for log in logs]
+        return templates.TemplateResponse("login.html", {"request": request, "error": "Xác minh người dùng thất bại.", "logs": formatted_logs})
+
+    machine_id = await cMachine.verify(user_id, machineIdentifyNumber)
+    if machine_id == '':
+        print("Lỗi: Xác minh thiết bị thất bại. Đang dừng chương trình.")
+        logs = session.exec(select(ServerLog).order_by(ServerLog.timestamp.desc()).limit(100)).all()
+        formatted_logs = [f"[{log.timestamp.strftime('%Y-%m-%d %H:%M:%S')}] {log.message}" for log in logs]
+        return templates.TemplateResponse("login.html", {"request": request, "error": "Xác minh thiết bị thất bại.", "logs": formatted_logs})
+
+    # Chạy hàm init của socket trong một tác vụ nền
+    asyncio.create_task(soc.connect_socket())
+
+    print(f"Đăng nhập thành công cho Username: {username}, Machine ID: {machineIdentifyNumber}")
+    return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
+
+@app.get("/logout", response_class=HTMLResponse)
+async def logout(request: Request, session: Session = Depends(getSession)):
+     return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
+
+@app.post("/logout")
+async def logout(request: Request):
+    print("Người dùng đã đăng xuất.")
+    await cUser.logout(request)
+
+    # Đóng kết nối socket khi đăng xuất
+    await soc.close_socket_connection()
+
+    return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
+
+@app.post("/socket/connect")
+async def connect_socket_endpoint():
+    try:
+        asyncio.create_task(soc.connect_socket())
+        return {"status": "success", "message": "Đang cố gắng kết nối socket."}
+    except Exception as e:
+        return {"status": "error", "message": f"Lỗi khi kết nối socket: {e}"}
+
+@app.post("/socket/disconnect")
+async def disconnect_socket_endpoint():
+    try:
+        await soc.close_socket_connection()
+        return {"status": "success", "message": "Đã ngắt kết nối socket."}
+    except Exception as e:
+        return {"status": "error", "message": f"Lỗi khi ngắt kết nối socket: {e}"}
+
+@app.post("/connection/check")
+async def check_connection_endpoint():
+    try:
+        isConnectFailed = True
+        isServerFailed = True
+        # Socket.
+        if soc.manager.client and soc.manager.client.connected:
+            tempProfileUser = await hdl.getSecret('profile_user', 'session')
+            if tempProfileUser:
+                profileUser = json.loads(tempProfileUser)
+
+            tempProfileMachine = await hdl.getSecret('profile_machine', 'session')
+            if tempProfileMachine:
+                profileMachine = json.loads(tempProfileMachine)
+            currentPlatform = 'BackBridge'
+            currentUserId = profileUser['v_id']
+            targetUserId = profileUser['v_id']
+            targetMachineId = profileMachine['v_id']
+
+            tempMsg = {
+                    "message": {
+                        "machineId": targetMachineId,
+                        "userId": currentUserId,
+                        "action": "checkConnection",
+                        "detail": "",
+                        "sender": "BackBridge",
+                        "receiver": "BackServer"
+                    },
+                    "authen": {
+                        'currentPlatform': currentPlatform,
+                        'currentUserId': currentUserId,
+                        'targetUserId': targetUserId,
+                        'targetMachineId': targetMachineId,
+                    }
+                    }
+            checked = {'status': 'error', 'message': ''}
+            try:
+                checked = await soc.manager.client.call('checkConnection', json.dumps(tempMsg), timeout=2)
+            except Exception as e:
+                checked['message'] = f'No response from socker server.'
+
+            if checked['status'] == 'success':
+                isConnectFailed = False
+            elif checked['status'] == 'error':
+                await disconnect_socket_endpoint()
+                await asyncio.sleep(2)
+                await connect_socket_endpoint()
+                await asyncio.sleep(2)
+
+            # Check server.
+            configurationAgent = await cAgent.getConfiguration(agentDomain, agentDevice)
+            if 'error' not in configurationAgent:
+                isServerFailed = False
+            return {"status": checked['status'], "message": f"Is server failed => {isServerFailed}, Is connect failed => {isConnectFailed}, {checked['message']}"}
+        else:
+            return {"status": "error", "message": "Socket client chưa được kết nối."}
+    except Exception as e:
+        return {"status": "error", "message": f"Lỗi khi gửi yêu cầu kiểm tra kết nối socket: {e}"}
+
+async def periodic_check_connection():
+    while True:
+        try:
+            result = await check_connection_endpoint()
+            print(f"[CheckConnection] {result}")
+        except Exception as e:
+            print(f"[CheckConnection] Error: {e}")
+
+        await asyncio.sleep(30)
+
+async def periodic_refresh_session():
+    """Làm mới token tự động mỗi 10 phút nếu người dùng đã đăng nhập."""
+    while True:
+        try:
+            # Ngủ 10 phút (600 giây) trước khi bắt đầu chu kỳ tiếp theo
+            await asyncio.sleep(600)
+
+            # Chỉ tiến hành nếu đã đăng nhập
+            tempProfileUser = await hdl.getSecret('profile_user', 'session')
+            if tempProfileUser:
+                print(f"[PeriodicRefresh] {datetime.datetime.now()} - Bắt đầu tự động làm mới phiên làm việc...")
+                # Gọi refreshSession qua wrapper handle_refresh logic
+                result = await perform_refresh_session()
+                print(f"[PeriodicRefresh] Kết quả: {result}")
+            else:
+                print(f"[PeriodicRefresh] {datetime.datetime.now()} - Chưa đăng nhập, bỏ qua làm mới.")
+        except Exception as e:
+            print(f"[PeriodicRefresh] Lỗi: {e}")
+
+async def perform_refresh_session():
+    """Logic cốt lõi để làm mới phiên làm việc, có thể gọi từ API hoặc tác vụ nền."""
+    try:
+        # 1. Lấy thông tin hiện tại từ secret (nếu có)
+        tempProfileUser = await hdl.getSecret('profile_user', 'session')
+        tempProfileMachine = await hdl.getSecret('profile_machine', 'session')
+
+        if not tempProfileUser or not tempProfileMachine:
+            return {"status": "error", "message": "Không tìm thấy thông tin phiên làm việc cũ."}
+
+        profileUser = json.loads(tempProfileUser)
+        profileMachine = json.loads(tempProfileMachine)
+        userId = profileUser['v_id']
+        machineIdentifyNumber = profileMachine['o_identify_number']
+
+        # 2. Ngắt kết nối socket cũ
+        await soc.close_socket_connection()
+
+        # 3. Làm mới cấu hình Agent
+        agent_id = await cAgent.verify(agentDomain, agentDevice)
+        if not agent_id:
+            return {"status": "error", "message": "Xác minh đại lý thất bại khi làm mới."}
+
+        # 4. Làm mới Profile User (Handler sẽ tự động dùng refresh token nếu access token hết hạn)
+        newProfile = await cUser.getProfile()
+        if 'error' in newProfile:
+             return {"status": "error", "message": f"Không thể lấy profile mới: {newProfile['error']}"}
+
+        tempProfileUserJson = json.dumps(newProfile['data'])
+        await hdl.setSecret('profile_user', tempProfileUserJson, 'session')
+
+        # 5. Làm mới thông tin Machine
+        new_machine_id = await cMachine.verify(userId, machineIdentifyNumber)
+        if not new_machine_id:
+            return {"status": "error", "message": "Xác minh thiết bị thất bại khi làm mới."}
+
+        # 6. Kết nối lại socket
+        asyncio.create_task(soc.connect_socket())
+
+        return {"status": "success", "message": "Đã làm mới phiên làm việc và kết nối lại thành công."}
+    except Exception as e:
+        print(f"Lỗi khi thực hiện perform_refresh_session: {e}")
+        return {"status": "error", "message": f"Lỗi hệ thống: {e}"}
+
+@app.post("/refresh")
+async def refreshSession(request: Request):
+    print("Đang tiến hành làm mới phiên làm việc (Refresh Session) theo yêu cầu người dùng...")
+    return await perform_refresh_session()
+
+# Additional information.
+@app.get("/secrets")
+def readAllSecret(
+    session: Session = Depends(getSession),
+    offset: int = 0,
+    limit: int = 100,
+):
+    secrets = session.exec(select(Secret).offset(offset).limit(limit)).all()
+    return secrets
+
+if __name__ == '__main__':
+    uvicorn.run(app, host="0.0.0.0", port=port, reload=False, workers=1)
