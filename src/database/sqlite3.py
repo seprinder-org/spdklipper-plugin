@@ -18,6 +18,9 @@ load_dotenv(dotenv_path=base_path / ".env", override=True) # Load environment va
 # End load env.
 
 pathDb = os.getenv('PATH_DB')
+if pathDb is None:
+    # Default value if PATH_DB is not set in .env
+    pathDb = "db.sqlite3"
 # Nếu pathDb là relative, resolve dựa trên base_path
 if not os.path.isabs(pathDb):
     pathDb = str(base_path / pathDb)
