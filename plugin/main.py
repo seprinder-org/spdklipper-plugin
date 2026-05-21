@@ -4,6 +4,13 @@ import shutil
 import uvicorn
 import socket
 import sys
+from pathlib import Path
+
+# Add project root to sys.path so that 'src', 'libs', 'constants' packages are found
+_project_root = Path(__file__).resolve().parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
 from fastapi import Depends, FastAPI, Request, Form, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -14,11 +21,9 @@ from src.database.sqlite3 import Secret, ServerLog, SocketStatus, getSession, cr
 from src.controller import cUser, cMachine, cAgent
 import asyncio
 import json
-import sys
-from pathlib import Path
-import os
 from src.library import handler as hdl
 from libs import socket_manager as soc
+from utils import util as soc_util
 from fastapi.responses import JSONResponse
 from fastapi import WebSocket, WebSocketDisconnect
 from constants import AGENT_DOMAIN as agentDomain, AGENT_DEVICE as agentDevice, PORT as port
@@ -121,14 +126,14 @@ async def lifespan(app: FastAPI):
     # The database is persistent and tokens survive across reboots.
     createDbAndTbl()
 
-    # Delete dataset.
-    hdl.deleteDataset()
+    # Delete dataset (disabled — detection feature not yet active).
+    # hdl.deleteDataset()
 
-    # Create dataset.
-    hdl.createDataset()
+    # Create dataset (disabled — detection feature not yet active).
+    # hdl.createDataset()
 
-    # Create model.
-    await hdl.createModel()
+    # Create model (disabled — detection feature not yet active).
+    # await hdl.createModel()
 
     asyncio.create_task(periodic_check_connection())
     asyncio.create_task(periodic_refresh_session())
@@ -259,7 +264,7 @@ async def login(
         return templates.TemplateResponse("login.html", {"request": request, "error": "Xác minh thiết bị thất bại.", "logs": formatted_logs})
 
     # Chạy hàm init của socket trong một tác vụ nền
-    asyncio.create_task(soc.connect_socket())
+    asyncio.create_task(soc_util.connect_socket())
 
     print(f"Đăng nhập thành công cho Username: {username}, Machine ID: {machineIdentifyNumber}")
     return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
@@ -274,14 +279,14 @@ async def logout(request: Request):
     await cUser.logout(request)
 
     # Đóng kết nối socket khi đăng xuất
-    await soc.close_socket_connection()
+    await soc_util.close_socket_connection()
 
     return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
 
 @app.post("/socket/connect")
 async def connect_socket_endpoint():
     try:
-        asyncio.create_task(soc.connect_socket())
+        asyncio.create_task(soc_util.connect_socket())
         return {"status": "success", "message": "Đang cố gắng kết nối socket."}
     except Exception as e:
         return {"status": "error", "message": f"Lỗi khi kết nối socket: {e}"}
@@ -289,7 +294,7 @@ async def connect_socket_endpoint():
 @app.post("/socket/disconnect")
 async def disconnect_socket_endpoint():
     try:
-        await soc.close_socket_connection()
+        await soc_util.close_socket_connection()
         return {"status": "success", "message": "Đã ngắt kết nối socket."}
     except Exception as e:
         return {"status": "error", "message": f"Lỗi khi ngắt kết nối socket: {e}"}
@@ -398,7 +403,7 @@ async def perform_refresh_session():
         machineIdentifyNumber = profileMachine['o_identify_number']
 
         # 2. Ngắt kết nối socket cũ
-        await soc.close_socket_connection()
+        await soc_util.close_socket_connection()
 
         # 3. Làm mới cấu hình Agent
         agent_id = await cAgent.verify(agentDomain, agentDevice)
@@ -419,7 +424,7 @@ async def perform_refresh_session():
             return {"status": "error", "message": "Xác minh thiết bị thất bại khi làm mới."}
 
         # 6. Kết nối lại socket
-        asyncio.create_task(soc.connect_socket())
+        asyncio.create_task(soc_util.connect_socket())
 
         return {"status": "success", "message": "Đã làm mới phiên làm việc và kết nối lại thành công."}
     except Exception as e:

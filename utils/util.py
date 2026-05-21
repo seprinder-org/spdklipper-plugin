@@ -1,4 +1,5 @@
-from libs.socket_manager import manager, hostConnect, path, _connect_to_socketio
+from libs.socket_manager import manager, _connect_to_socketio
+from constants.constant import HOST_CONNECT as hostConnect, PATH as path
 from src.library import handler as hdl
 import json
 import socketio

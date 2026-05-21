@@ -23,7 +23,7 @@ import aiofiles
 from src.library import exception as exp
 from src.controller import cJob, cStorage, cSlicer, cMachineOs
 
-from constants.constant import HOST_CONNECT, PATH, DATASET_ROOT
+from constants.constant import HOST_CONNECT, PATH
 
 from src.printer import klipper as klp # Kliper.
 # from src.printer import bambulab as bbl # Bambu lab.

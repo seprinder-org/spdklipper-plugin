@@ -8,7 +8,14 @@ from dotenv import load_dotenv
 import sys
 from pathlib import Path
 from constants import HOST_SERVER as hostServer
-from utils import get_base_path
+
+
+def get_base_path() -> Path:
+    """Get the base path of the application."""
+    if getattr(sys, 'frozen', False):
+        return Path(sys._MEIPASS)
+    else:
+        return Path(os.getcwd())
 
 base_path = get_base_path()
 
