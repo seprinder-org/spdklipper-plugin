@@ -40,7 +40,9 @@ if getattr(sys, 'frozen', False):
     base_path = Path(sys._MEIPASS)
     exe_path = Path(sys.executable).parent
 else:
-    base_path = Path(os.getcwd())
+    # Khi chạy từ source: dùng vị trí file main.py để xác định project root
+    # File main.py nằm ở plugin/main.py, project root là parent của plugin/
+    base_path = Path(__file__).resolve().parent.parent
     exe_path = base_path
 
 load_dotenv(dotenv_path=base_path / ".env", override=True) # Load environment variables at the very beginning, overriding existing ones
