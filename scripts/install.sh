@@ -216,9 +216,51 @@ secure_sensitive_files() {
     chmod 600 "${SPDKLIPPER_PLUGIN_DIR}/.env.enc.salt"
     ok_msg ".env.enc.salt permissions set to 600"
   fi
-
-  report_status "File permission hardening complete."
+report_status "File permission hardening complete."
 }
+
+
+add_update_manager_config() {
+"""
+Add Moonraker update manager configuration for SPDKlipper plugin.
+This allows Klipper's update manager (Fluidd/Mainsail) to automatically
+git pull and restart the plugin when updates are available.
+
+The config is appended to moonraker.conf if not already present.
+"""
+local moonraker_conf="${KLIPPER_CONF_DIR}/moonraker.conf"
+
+if [ ! -f "$moonraker_conf" ]; then
+  warn_msg "moonraker.conf not found at ${moonraker_conf}. Skipping update manager config."
+  return 0
+fi
+
+# Check if update manager config already exists
+if grep -q "\[update_manager client ${SPDKLIPPER_PLUGIN_SERVICE%.*}\]" "$moonraker_conf"; then
+  ok_msg "Update manager config already exists in moonraker.conf. Skipping."
+  return 0
+fi
+
+report_status "Adding update manager config to moonraker.conf..."
+
+cat >> "$moonraker_conf" <<EOF
+
+# SPDKlipper plugin update manager
+[update_manager client ${SPDKLIPPER_PLUGIN_SERVICE%.*}]
+type: git_repo
+path: ${SPDKLIPPER_PLUGIN_DIR}
+primary_branch: master
+origin: https://github.com/seprinder-org/spdklipper-plugin.git
+env: ${SPDKLIPPER_PLUGIN_ENV}/bin/python
+requirements: scripts/requirements.txt
+install_script: scripts/install.sh
+EOF
+
+ok_msg "Update manager config added to moonraker.conf"
+report_status "NOTE: You may need to restart Moonraker for the changes to take effect:"
+report_status "  sudo systemctl restart moonraker"
+}
+
 
 create_virtualenv() {
   report_status "Installing python virtual environment..."
@@ -290,6 +332,9 @@ install_instances(){
 
   init_config_path
   create_initial_config
+
+  # Add Moonraker update manager config
+  add_update_manager_config
 
   # Secure sensitive files after installation
   secure_sensitive_files
