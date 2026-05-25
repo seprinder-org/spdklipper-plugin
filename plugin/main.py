@@ -148,11 +148,33 @@ async def lifespan(app: FastAPI):
     # await hdl.createModel()
 
     # --- Auto-login from config file (spdklipper.conf) ---
+    creds = cfg.read_credentials(_config_path)
+    config_has_creds = cfg.has_valid_credentials(creds) and creds['machine_id']
+
+    # Check if machine_id in config has CHANGED since last session.
+    # If so, reset the old session so auto-login re-authenticates with the new machine.
+    if config_has_creds:
+        tempProfileMachine = await hdl.getSecret('profile_machine', 'session')
+        if tempProfileMachine:
+            try:
+                old_machine_data = json.loads(tempProfileMachine)
+                old_machine_id = old_machine_data.get('o_identify_number', '')
+                if old_machine_id and old_machine_id != creds['machine_id']:
+                    print(f"[AutoLogin] Phát hiện machine_id thay đổi: '{old_machine_id}' → '{creds['machine_id']}'")
+                    print("[AutoLogin] Đang xóa session cũ để đăng nhập lại với máy mới...")
+                    # resetSecret is a sync function, run in executor to avoid blocking
+                    loop = asyncio.get_event_loop()
+                    await loop.run_in_executor(None, hdl.resetSecret, 'session')
+                    await loop.run_in_executor(None, hdl.resetSecret, 'local')
+                    # Also close any existing socket connection
+                    await soc_util.close_socket_connection()
+            except Exception as e:
+                print(f"[AutoLogin] Lỗi khi kiểm tra machine_id cũ: {e}")
+
     # Only attempt auto-login if no existing session is found.
     tempProfileUser = await hdl.getSecret('profile_user', 'session')
     if not tempProfileUser:
-        creds = cfg.read_credentials(_config_path)
-        if cfg.has_valid_credentials(creds) and creds['machine_id']:
+        if config_has_creds:
             print("[AutoLogin] Phát hiện thông tin đăng nhập trong config. Đang tự động đăng nhập...")
             try:
                 # Step 1: Verify agent
