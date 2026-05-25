@@ -54,6 +54,7 @@ async def verify(*args):
 
     return machineId
 
+
 async def readOne():
     pass
 

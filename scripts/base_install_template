@@ -1,2 +1,25 @@
 [server]
 server: localhost
+
+[credentials]
+# SPD account credentials for auto-login.
+# If these are set, the plugin will automatically log in on startup
+# without requiring the web interface at localhost:1122.
+#
+# All 3 fields are REQUIRED for auto-login to work.
+#
+# --- username ---
+# Your SPD account email or username.
+username:
+
+# --- password ---
+# Your SPD account password.
+password:
+
+# --- machine_id ---
+# The "Identify Number" of the printer you want to use.
+# To find your Machine ID:
+#   1. Log in to https://seprinder.com
+#   2. Go to your profile -> Machines section
+#   3. Copy the "Identify Number" of your printer
+machine_id:

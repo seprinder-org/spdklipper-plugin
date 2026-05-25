@@ -22,6 +22,7 @@ from src.controller import cUser, cMachine, cAgent
 import asyncio
 import json
 from src.library import handler as hdl
+from src.library import config_reader as cfg  # Config reader for spdklipper.conf
 from libs import socket_manager as soc
 from utils import util as soc_util
 from fastapi.responses import JSONResponse
@@ -47,6 +48,15 @@ else:
 
 load_dotenv(dotenv_path=base_path / ".env", override=True) # Load environment variables at the very beginning, overriding existing ones
 # End load env.
+
+# --- Parse CLI arguments for -c (config) and -l (log) ---
+_cli_args = cfg.parse_cli_args()
+_config_path = cfg.resolve_config_path(_cli_args.get('config_path'))
+if _config_path:
+    print(f"[Config] Using config file: {_config_path}")
+else:
+    print("[Config] No config file found. Web login will be used if needed.")
+# --- End CLI args ---
 
 # --- Security: Restrict .env file permissions on startup ---
 # On Unix systems (Raspberry Pi), ensure .env is owner-read-only
@@ -136,6 +146,44 @@ async def lifespan(app: FastAPI):
 
     # Create model (disabled — detection feature not yet active).
     # await hdl.createModel()
+
+    # --- Auto-login from config file (spdklipper.conf) ---
+    # Only attempt auto-login if no existing session is found.
+    tempProfileUser = await hdl.getSecret('profile_user', 'session')
+    if not tempProfileUser:
+        creds = cfg.read_credentials(_config_path)
+        if cfg.has_valid_credentials(creds) and creds['machine_id']:
+            print("[AutoLogin] Phát hiện thông tin đăng nhập trong config. Đang tự động đăng nhập...")
+            try:
+                # Step 1: Verify agent
+                agent_id = await cAgent.verify(agentDomain, agentDevice)
+                if not agent_id:
+                    print("[AutoLogin] Lỗi: Xác minh đại lý thất bại.")
+                else:
+                    # Step 2: Login user
+                    user_id = await cUser.verify(creds['username'], creds['password'])
+                    if not user_id:
+                        print("[AutoLogin] Lỗi: Đăng nhập thất bại. Kiểm tra lại username/password.")
+                    else:
+                        # Step 3: Verify machine with exact Machine ID from config
+                        print(f"[AutoLogin] Sử dụng Machine ID từ config: {creds['machine_id']}")
+                        machine_id = await cMachine.verify(user_id, creds['machine_id'])
+                        if not machine_id:
+                            print(f"[AutoLogin] Lỗi: Không tìm thấy máy với ID '{creds['machine_id']}' trong tài khoản.")
+                        else:
+                            # Step 4: Connect socket
+                            print("[AutoLogin] Đăng nhập và xác thực máy in thành công!")
+                            asyncio.create_task(soc_util.connect_socket())
+            except Exception as e:
+                print(f"[AutoLogin] Lỗi trong quá trình tự động đăng nhập: {e}")
+        else:
+            if not creds['machine_id']:
+                print("[AutoLogin] Thiếu machine_id trong config. Cần điền đủ username, password và machine_id.")
+            else:
+                print("[AutoLogin] Không tìm thấy thông tin đăng nhập trong config. Dùng giao diện web để đăng nhập.")
+    else:
+        print("[AutoLogin] Đã có phiên làm việc cũ. Bỏ qua tự động đăng nhập.")
+    # --- End auto-login ---
 
     asyncio.create_task(periodic_check_connection())
     asyncio.create_task(periodic_refresh_session())
