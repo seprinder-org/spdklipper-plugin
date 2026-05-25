@@ -264,12 +264,32 @@ report_status "  sudo systemctl restart moonraker"
 
 add_restart_macro() {
 """
-Add RESTART_SPDK macro to printer.cfg.
+Add RESTART_SPDK macro to printer.cfg and configure Moonraker authorization.
 This macro allows users to restart the SPDKlipper plugin service
 directly from the Klipper console (Fluidd/Mainsail) via Moonraker API.
 """
 local printer_cfg="${KLIPPER_CONF_DIR}/printer.cfg"
+local moonraker_conf="${KLIPPER_CONF_DIR}/moonraker.conf"
 
+# --- Step 1: Add [authorization] to moonraker.conf if missing ---
+if [ -f "$moonraker_conf" ]; then
+  if ! grep -q "\[authorization\]" "$moonraker_conf"; then
+    report_status "Adding [authorization] to moonraker.conf for restart_service API..."
+    cat >> "$moonraker_conf" <<EOF
+
+# Allow Klipper macros to call Moonraker APIs (e.g. restart_service)
+[authorization]
+enabled: false
+EOF
+    ok_msg "[authorization] added to moonraker.conf"
+    report_status "NOTE: You need to restart Moonraker for this to take effect:"
+    report_status "  sudo systemctl restart moonraker"
+  else
+    ok_msg "[authorization] already exists in moonraker.conf"
+  fi
+fi
+
+# --- Step 2: Add RESTART_SPDK macro to printer.cfg ---
 if [ ! -f "$printer_cfg" ]; then
   warn_msg "printer.cfg not found at ${printer_cfg}. Skipping RESTART_SPDK macro."
   return 0
@@ -293,6 +313,11 @@ EOF
 
 ok_msg "RESTART_SPDK macro added to printer.cfg"
 report_status "You can now restart SPDKlipper from Fluidd/Mainsail console by running: RESTART_SPDK"
+report_status ""
+report_status "IMPORTANT: After install, run these commands on your Raspberry Pi:"
+report_status "  1. sudo systemctl restart moonraker"
+report_status "  2. sudo systemctl restart klipper"
+report_status "Then use RESTART_SPDK from Fluidd/Mainsail console."
 }
 
 
