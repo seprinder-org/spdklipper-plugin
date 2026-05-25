@@ -262,6 +262,40 @@ report_status "  sudo systemctl restart moonraker"
 }
 
 
+add_restart_macro() {
+"""
+Add RESTART_SPDK macro to printer.cfg.
+This macro allows users to restart the SPDKlipper plugin service
+directly from the Klipper console (Fluidd/Mainsail) via Moonraker API.
+"""
+local printer_cfg="${KLIPPER_CONF_DIR}/printer.cfg"
+
+if [ ! -f "$printer_cfg" ]; then
+  warn_msg "printer.cfg not found at ${printer_cfg}. Skipping RESTART_SPDK macro."
+  return 0
+fi
+
+# Check if macro already exists
+if grep -q "\[gcode_macro RESTART_SPDK\]" "$printer_cfg"; then
+  ok_msg "RESTART_SPDK macro already exists in printer.cfg. Skipping."
+  return 0
+fi
+
+report_status "Adding RESTART_SPDK macro to printer.cfg..."
+
+cat >> "$printer_cfg" << 'EOF'
+
+[gcode_macro RESTART_SPDK]
+description: Restart SPDKlipper plugin service
+gcode:
+    {action_call_remote_method("restart_service", service_name="spdklipper-plugin")}
+EOF
+
+ok_msg "RESTART_SPDK macro added to printer.cfg"
+report_status "You can now restart SPDKlipper from Fluidd/Mainsail console by running: RESTART_SPDK"
+}
+
+
 create_virtualenv() {
   report_status "Installing python virtual environment..."
 
@@ -335,6 +369,9 @@ install_instances(){
 
   # Add Moonraker update manager config
   add_update_manager_config
+
+  # Add RESTART_SPDK macro to printer.cfg
+  add_restart_macro
 
   # Secure sensitive files after installation
   secure_sensitive_files
