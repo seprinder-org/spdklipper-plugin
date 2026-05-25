@@ -18,7 +18,6 @@ dist/
 *.tar.gz
 
 # Secrets & local files
-.env
 .env.enc
 .env.enc.salt
 db.sqlite3
