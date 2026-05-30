@@ -203,45 +203,61 @@ class scClient(socketio.AsyncClientNamespace):
                     jsMsg = json.loads(msg)
                     targetJobId = jsMsg['message']['detail']
                     targetMachineId = jsMsg['message']['machineId']
+                    # Lấy fileUrl và fileName từ message (dành cho in trực tiếp từ editor)
+                    directFileUrl = jsMsg['message'].get('fileUrl', '')
+                    directFileName = jsMsg['message'].get('fileName', '')
 
-                    condition = {
-                        'v_id': targetJobId,
-                        'v_status': 'Printing',
-                        'v_sender_id': targetMachineId,
-                        'a_result': 'Active'
-                    }
-                    structure = {
-                            'limit': 1,
-                            'page': 1,
-                            'orderBy': 'v_created_timestamp',
-                            'orderType': 'DESC',
-                            'lstColumn': [],
-                            'searchKeyword': '',
-                        }
-                    lstJob = await cJob.readCondition(condition, structure)
-                    targetJob = lstJob['data'][0]
-                    orderDetailId = targetJob['o_order_detail_id']
-                    
-                    # (Slicer and storage logic kept as is but slightly cleaned up)
-                    condition = {'v_order_detail_id': orderDetailId, 'a_result': 'Active'}
-                    lstSlicer = await cSlicer.readCondition(condition, structure)
-                    if len(lstSlicer['data']) == 0:
-                        condition = {'v_possessor_id': orderDetailId, 'a_result': 'Active'}
-                        lstStorage = await cStorage.readCondition(condition, structure)
-                        targetStorage = lstStorage['data'][0]
-                        targetId, targetCloudPath = targetStorage['v_id'], targetStorage['o_cloud_path']
+                    # Nếu có fileUrl trong message, đây là in trực tiếp (Print Now từ editor)
+                    # Không cần tra cứu job trong database vì job có thể chưa được tạo hoặc là direct_*
+                    if directFileUrl:
+                        print(f'Direct print from editor: {targetJobId}, fileUrl: {directFileUrl}')
+                        filename, file_stream, session = await hdl.download_file_async(directFileUrl, targetJobId, machineOsName)
+                        targetJob = None
                     else:
-                        targetSlicer = lstSlicer['data'][0]
-                        targetId, targetCloudPath = targetSlicer['v_id'], targetSlicer['o_cloud_path']
+                        # In từ đơn hàng thông thường: tra cứu job trong database
+                        condition = {
+                            'v_id': targetJobId,
+                            'v_status': 'Printing',
+                            'v_sender_id': targetMachineId,
+                            'a_result': 'Active'
+                        }
+                        structure = {
+                                'limit': 1,
+                                'page': 1,
+                                'orderBy': 'v_created_timestamp',
+                                'orderType': 'DESC',
+                                'lstColumn': [],
+                                'searchKeyword': '',
+                            }
+                        lstJob = await cJob.readCondition(condition, structure)
+                        if not lstJob.get('data') or len(lstJob['data']) == 0:
+                            print(f'Job not found in database: {targetJobId}')
+                            return
+                        targetJob = lstJob['data'][0]
+                        orderDetailId = targetJob['o_order_detail_id']
 
-                    print('Printing job:', targetJobId)
-                    filename, file_stream, session = await hdl.download_file_async(targetCloudPath, targetId, machineOsName)
+                        # Lấy file từ cloud storage thông qua order_detail_id
+                        condition = {'v_order_detail_id': orderDetailId, 'a_result': 'Active'}
+                        lstSlicer = await cSlicer.readCondition(condition, structure)
+                        if len(lstSlicer['data']) == 0:
+                            condition = {'v_possessor_id': orderDetailId, 'a_result': 'Active'}
+                            lstStorage = await cStorage.readCondition(condition, structure)
+                            targetStorage = lstStorage['data'][0]
+                            targetId, targetCloudPath = targetStorage['v_id'], targetStorage['o_cloud_path']
+                        else:
+                            targetSlicer = lstSlicer['data'][0]
+                            targetId, targetCloudPath = targetSlicer['v_id'], targetSlicer['o_cloud_path']
+
+                        print('Printing job:', targetJobId)
+                        filename, file_stream, session = await hdl.download_file_async(targetCloudPath, targetId, machineOsName)
+
                     try:
                         await asyncio.sleep(5)
                         fullpath = await printer.uploadFile(filename, file_stream)
                         await asyncio.sleep(5)
                         if fullpath is None:
-                            await cJob.notify(targetJob['v_id'], 'Failed')
+                            if targetJob:
+                                await cJob.notify(targetJob['v_id'], 'Failed')
                             return
 
                         # is_win64 = sys.platform == 'win32' and platform.machine().endswith('64')
@@ -254,7 +270,8 @@ class scClient(socketio.AsyncClientNamespace):
 
                         await asyncio.sleep(5)
                         if rslt:
-                            await cJob.notify(targetJob['v_id'], 'Completed')
+                            if targetJob:
+                                await cJob.notify(targetJob['v_id'], 'Completed')
                             await asyncio.sleep(5)
                             await printer.removeFile(filename)
                             print('File is removed.')
