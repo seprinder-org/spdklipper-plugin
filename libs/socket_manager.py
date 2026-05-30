@@ -273,10 +273,7 @@ class scClient(socketio.AsyncClientNamespace):
                         # is_win64 = sys.platform == 'win32' and platform.machine().endswith('64')
                         # is_ai_supported = is_win64
 
-                        if profileMachine.get('o_is_camera_in_used'):
-                            rslt = await printer.doJobWithFailureDetection(filename, targetJobId, addressCamera, job_id=targetJobId)
-                        else:
-                            rslt = await printer.doJob(filename, job_id=targetJobId)
+                        rslt = await printer.doJob(filename, job_id=targetJobId)
 
                         await asyncio.sleep(5)
                         if rslt:

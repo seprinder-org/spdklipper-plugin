@@ -57,6 +57,12 @@ class BasePrinter(ABC):
                 
         return rslt
 
+    # async def doJobWithFailureDetection(self, filename: str, targetJobId: str, addressCamera: str, **kwargs):
+    #     """
+    #     Reserved for future use with camera-based failure detection.
+    #     """
+    #     pass
+
     @abstractmethod
     async def runCancel(self):
         pass
