@@ -35,6 +35,7 @@ class BasePrinter(ABC):
     async def doJob(self, filename: str, **kwargs):
         """
         Default implementation for basic job execution loop.
+        Chạy trong background task (create_task) để không block các sự kiện socket khác.
         """
         rslt = False
         

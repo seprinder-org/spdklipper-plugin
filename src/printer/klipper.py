@@ -79,14 +79,47 @@ class KlipperPrinter(BasePrinter):
         return val
 
     async def isReadyState(self):
+        """
+        Kiểm tra máy in đã sẵn sàng nhận lệnh in mới chưa.
+        - Nếu đang 'printing' → chưa sẵn sàng (busy)
+        - Nếu 'complete', 'error', 'cancelled' → tự động reset file để về standby
+        - Nếu 'standby' hoặc state khác không phải 'printing' → sẵn sàng
+        """
         rslt = False
         res = await self.getPrintStat()
         try:
             state = res['result']['status']['print_stats']['state']
-            if state != 'printing':
+            if state == 'printing':
+                rslt = False
+            elif state in ('complete', 'error', 'cancelled'):
+                # Klipper giữ file cũ trong bộ nhớ, cần reset để in file mới
+                print(f'Klipper state is "{state}". Resetting job state before accepting new job...')
+                reset_ok = await self.resetJobState()
+                if reset_ok:
+                    rslt = True
+                else:
+                    print('Failed to reset Klipper job state.')
+                    rslt = False
+            else:
+                # 'standby' hoặc các state khác → sẵn sàng
                 rslt = True
         except (KeyError, TypeError):
             pass
+        return rslt
+
+    async def resetJobState(self):
+        """
+        Gửi lệnh SDCARD_RESET_FILE để clear file cũ khỏi bộ nhớ Klipper.
+        Cần thiết khi Klipper ở state 'complete' để có thể in file mới.
+        """
+        rslt = False
+        val = {}
+        url = f'{self.address_control}/printer/gcode/script?script=SDCARD_RESET_FILE'
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url) as res:
+                val = await res.json()
+        if val.get('result') == 'ok':
+            rslt = True
         return rslt
 
     async def runCancel(self):
