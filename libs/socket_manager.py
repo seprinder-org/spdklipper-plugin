@@ -7,6 +7,8 @@ import socketio
 import sys
 import tracemalloc
 import ssl
+import base64
+from io import BytesIO
 try:
     import certifi
 except ImportError:
@@ -203,13 +205,21 @@ class scClient(socketio.AsyncClientNamespace):
                     jsMsg = json.loads(msg)
                     targetJobId = jsMsg['message']['detail']
                     targetMachineId = jsMsg['message']['machineId']
-                    # Lấy fileUrl và fileName từ message (dành cho in trực tiếp từ editor)
+                    # Lấy thông tin từ message
                     directFileUrl = jsMsg['message'].get('fileUrl', '')
                     directFileName = jsMsg['message'].get('fileName', '')
+                    fileBase64 = jsMsg['message'].get('fileBase64', '')
 
-                    # Nếu có fileUrl trong message, đây là in trực tiếp (Print Now từ editor)
-                    # Không cần tra cứu job trong database vì job có thể chưa được tạo hoặc là direct_*
-                    if directFileUrl:
+                    # Nếu có fileBase64 trong message, đây là in trực tiếp (Print Now từ editor)
+                    # File đã được backend download và gửi dưới dạng base64 qua socket
+                    if fileBase64:
+                        print(f'Direct print from editor (base64): {targetJobId}, fileName: {directFileName}')
+                        file_bytes = base64.b64decode(fileBase64)
+                        file_stream = BytesIO(file_bytes)
+                        filename = directFileName if directFileName else f'{targetJobId}.gcode'
+                        session = None  # Không cần session cho base64, xử lý trong finally
+                        targetJob = None
+                    elif directFileUrl:
                         print(f'Direct print from editor: {targetJobId}, fileUrl: {directFileUrl}')
                         filename, file_stream, session = await hdl.download_file_async(directFileUrl, targetJobId, machineOsName)
                         targetJob = None
@@ -276,7 +286,8 @@ class scClient(socketio.AsyncClientNamespace):
                             await printer.removeFile(filename)
                             print('File is removed.')
                     finally:
-                        await session.close()
+                        if session:
+                            await session.close()
 
     async def on_cancelCurrentJob(self, msg):
         tempProfileMachine = await hdl.getSecret('profile_machine', 'session')
