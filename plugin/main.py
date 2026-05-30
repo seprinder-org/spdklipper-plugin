@@ -434,8 +434,14 @@ async def check_connection_endpoint():
 async def periodic_check_connection():
     while True:
         try:
-            result = await check_connection_endpoint()
-            print(f"[CheckConnection] {result}")
+            # Nếu socket chưa kết nối, tự động kết nối lại
+            if not soc.manager.client or not soc.manager.client.connected:
+                print("[CheckConnection] Socket chưa kết nối. Đang thử kết nối lại...")
+                asyncio.create_task(soc_util.connect_socket())
+                await asyncio.sleep(5)  # Chờ một chút để kết nối
+            else:
+                result = await check_connection_endpoint()
+                print(f"[CheckConnection] {result}")
         except Exception as e:
             print(f"[CheckConnection] Error: {e}")
 
