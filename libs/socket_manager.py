@@ -7,6 +7,8 @@ import socketio
 import sys
 import tracemalloc
 import ssl
+import base64
+from io import BytesIO
 try:
     import certifi
 except ImportError:
@@ -41,8 +43,6 @@ lstScServer = {}
 profileUser = {}
 accessToken = ''
 refreshToken = ''
-addressControl = ''
-addressCamera = ''
 isAmsUsed = False
 
 # Load .env
@@ -67,7 +67,7 @@ class scClient(socketio.AsyncClientNamespace):
         asyncio.create_task(update_socket_status_in_db(False))
 
     async def on_confirm(self, msg):
-        global addressControl, addressCamera, isAmsUsed
+        global isAmsUsed
 
         currentPlatform = self.client.connection_headers['x-current-platform']
         currentUserId = self.client.connection_headers['x-current-user-id']
@@ -84,8 +84,6 @@ class scClient(socketio.AsyncClientNamespace):
         }
 
         profileMachine = json.loads(await hdl.getSecret('profile_machine', 'session'))
-        addressControl = profileMachine.get('o_address_control', '')
-        addressCamera = profileMachine.get('o_address_camera', '')
 
         if profileMachine['v_id'] != targetMachineId:
             hdl.resetSecret('local')
@@ -120,23 +118,27 @@ class scClient(socketio.AsyncClientNamespace):
         machineAuthentication = profileMachine.get('o_machine_authentication', '{}')
         auth = json.loads(machineAuthentication)
         
+        # Lấy địa chỉ control từ profileMachine thay vì biến global
+        machineAddressControl = profileMachine.get('o_address_control', '')
+        machineAddressCamera = profileMachine.get('o_address_camera', '')
+        
         machineIdentifyNumber = profileMachine.get('o_identify_number', 'default')
         if machineIdentifyNumber in self.printers:
             return self.printers[machineIdentifyNumber], machineOsName
 
         printer = None
         if machineOsName == 'Klipper':
-            printer = klp.KlipperPrinter(addressControl)
-            # printer = klp.KlipperPrinter(addressControl, mock=True)
+            printer = klp.KlipperPrinter(machineAddressControl)
+            # printer = klp.KlipperPrinter(machineAddressControl, mock=True)
         # elif machineOsName == 'Bambu lab':
-        #     printer = bbl.BambulabPrinter(addressControl, auth.get('accessCode'), auth.get('serialCode'), auth.get('isAmsUsed'))
-        #     # printer = bbl.BambulabPrinter(addressControl, auth.get('accessCode'), auth.get('serialCode'), auth.get('isAmsUsed'), mock=True)
+        #     printer = bbl.BambulabPrinter(machineAddressControl, auth.get('accessCode'), auth.get('serialCode'), auth.get('isAmsUsed'))
+        #     # printer = bbl.BambulabPrinter(machineAddressControl, auth.get('accessCode'), auth.get('serialCode'), auth.get('isAmsUsed'), mock=True)
         # elif machineOsName == 'Octoprint':
-        #     printer = octo.OctoprintPrinter(addressControl, auth.get('apiKey'))
-        #     # printer = octo.OctoprintPrinter(addressControl, auth.get('apiKey'), mock=True) # For mocking if there is no real printers.
+        #     printer = octo.OctoprintPrinter(machineAddressControl, auth.get('apiKey'))
+        #     # printer = octo.OctoprintPrinter(machineAddressControl, auth.get('apiKey'), mock=True) # For mocking if there is no real printers.
         # elif machineOsName == 'Ender 5 Max Chinese':
-        #     printer = efmc.Ender5MaxChinesePrinter(addressControl)
-        #     # printer = efmc.Ender5MaxChinesePrinter(addressControl, mock=True)
+        #     printer = efmc.Ender5MaxChinesePrinter(machineAddressControl)
+        #     # printer = efmc.Ender5MaxChinesePrinter(machineAddressControl, mock=True)
         # elif machineOsName == 'KobraOs cloud':
         #     printer_code = auth.get('printer_code')
         #     printer_token = auth.get('printer_token')
@@ -145,8 +147,8 @@ class scClient(socketio.AsyncClientNamespace):
         # elif machineOsName == 'Saturn 4 Ultra':
         #     mainboard_id = auth.get('mainboard_id')
         #     # # Use ipAddress from auth if global addressControl is not set
-        #     # effective_address = addressControl or auth.get('ipAddress', '')
-        #     printer = s4u.Saturn4UltraPrinter(addressControl, mainboard_id=mainboard_id)
+        #     # effective_address = machineAddressControl or auth.get('ipAddress', '')
+        #     printer = s4u.Saturn4UltraPrinter(machineAddressControl, mainboard_id=mainboard_id)
         
         if printer:
             self.printers[machineIdentifyNumber] = printer
@@ -203,63 +205,93 @@ class scClient(socketio.AsyncClientNamespace):
                     jsMsg = json.loads(msg)
                     targetJobId = jsMsg['message']['detail']
                     targetMachineId = jsMsg['message']['machineId']
+                    # Lấy thông tin từ message
+                    directFileUrl = jsMsg['message'].get('fileUrl', '')
+                    directFileName = jsMsg['message'].get('fileName', '')
+                    fileBase64 = jsMsg['message'].get('fileBase64', '')
 
-                    condition = {
-                        'v_id': targetJobId,
-                        'v_status': 'Printing',
-                        'v_sender_id': targetMachineId,
-                        'a_result': 'Active'
-                    }
-                    structure = {
-                            'limit': 1,
-                            'page': 1,
-                            'orderBy': 'v_created_timestamp',
-                            'orderType': 'DESC',
-                            'lstColumn': [],
-                            'searchKeyword': '',
-                        }
-                    lstJob = await cJob.readCondition(condition, structure)
-                    targetJob = lstJob['data'][0]
-                    orderDetailId = targetJob['o_order_detail_id']
-                    
-                    # (Slicer and storage logic kept as is but slightly cleaned up)
-                    condition = {'v_order_detail_id': orderDetailId, 'a_result': 'Active'}
-                    lstSlicer = await cSlicer.readCondition(condition, structure)
-                    if len(lstSlicer['data']) == 0:
-                        condition = {'v_possessor_id': orderDetailId, 'a_result': 'Active'}
-                        lstStorage = await cStorage.readCondition(condition, structure)
-                        targetStorage = lstStorage['data'][0]
-                        targetId, targetCloudPath = targetStorage['v_id'], targetStorage['o_cloud_path']
+                    # Nếu có fileBase64 trong message, đây là in trực tiếp (Print Now từ editor)
+                    # File đã được backend download và gửi dưới dạng base64 qua socket
+                    if fileBase64:
+                        print(f'Direct print from editor (base64): {targetJobId}, fileName: {directFileName}')
+                        file_bytes = base64.b64decode(fileBase64)
+                        file_stream = BytesIO(file_bytes)
+                        filename = directFileName if directFileName else f'{targetJobId}.gcode'
+                        session = None  # Không cần session cho base64, xử lý trong finally
+                        targetJob = None
+                    elif directFileUrl:
+                        print(f'Direct print from editor: {targetJobId}, fileUrl: {directFileUrl}')
+                        filename, file_stream, session = await hdl.download_file_async(directFileUrl, targetJobId, machineOsName)
+                        targetJob = None
                     else:
-                        targetSlicer = lstSlicer['data'][0]
-                        targetId, targetCloudPath = targetSlicer['v_id'], targetSlicer['o_cloud_path']
+                        # In từ đơn hàng thông thường: tra cứu job trong database
+                        condition = {
+                            'v_id': targetJobId,
+                            'v_status': 'Printing',
+                            'v_sender_id': targetMachineId,
+                            'a_result': 'Active'
+                        }
+                        structure = {
+                                'limit': 1,
+                                'page': 1,
+                                'orderBy': 'v_created_timestamp',
+                                'orderType': 'DESC',
+                                'lstColumn': [],
+                                'searchKeyword': '',
+                            }
+                        lstJob = await cJob.readCondition(condition, structure)
+                        if not lstJob.get('data') or len(lstJob['data']) == 0:
+                            print(f'Job not found in database: {targetJobId}')
+                            return
+                        targetJob = lstJob['data'][0]
+                        orderDetailId = targetJob['o_order_detail_id']
 
-                    print('Printing job:', targetJobId)
-                    filename, file_stream, session = await hdl.download_file_async(targetCloudPath, targetId, machineOsName)
+                        # Lấy file từ cloud storage thông qua order_detail_id
+                        condition = {'v_order_detail_id': orderDetailId, 'a_result': 'Active'}
+                        lstSlicer = await cSlicer.readCondition(condition, structure)
+                        if len(lstSlicer['data']) == 0:
+                            condition = {'v_possessor_id': orderDetailId, 'a_result': 'Active'}
+                            lstStorage = await cStorage.readCondition(condition, structure)
+                            targetStorage = lstStorage['data'][0]
+                            targetId, targetCloudPath = targetStorage['v_id'], targetStorage['o_cloud_path']
+                        else:
+                            targetSlicer = lstSlicer['data'][0]
+                            targetId, targetCloudPath = targetSlicer['v_id'], targetSlicer['o_cloud_path']
+
+                        print('Printing job:', targetJobId)
+                        filename, file_stream, session = await hdl.download_file_async(targetCloudPath, targetId, machineOsName)
+
                     try:
                         await asyncio.sleep(5)
                         fullpath = await printer.uploadFile(filename, file_stream)
                         await asyncio.sleep(5)
                         if fullpath is None:
-                            await cJob.notify(targetJob['v_id'], 'Failed')
+                            if targetJob:
+                                await cJob.notify(targetJob['v_id'], 'Failed')
                             return
 
-                        # is_win64 = sys.platform == 'win32' and platform.machine().endswith('64')
-                        # is_ai_supported = is_win64
-
-                        if profileMachine.get('o_is_camera_in_used'):
-                            rslt = await printer.doJobWithFailureDetection(filename, targetJobId, addressCamera, job_id=targetJobId)
-                        else:
-                            rslt = await printer.doJob(filename, job_id=targetJobId)
-
-                        await asyncio.sleep(5)
-                        if rslt:
-                            await cJob.notify(targetJob['v_id'], 'Completed')
-                            await asyncio.sleep(5)
-                            await printer.removeFile(filename)
-                            print('File is removed.')
+                        # Chạy doJob trong một task riêng để không block các sự kiện socket khác
+                        # (ví dụ: máy thứ 2 gửi lệnh trong khi máy thứ 1 đang in)
+                        asyncio.create_task(self._run_doJob_background(printer, filename, targetJob, targetJobId, session))
                     finally:
-                        await session.close()
+                        # session sẽ được đóng trong _run_doJob_background nếu có
+                        pass
+
+    async def _run_doJob_background(self, printer, filename, targetJob, targetJobId, session):
+        """Chạy doJob trong background task để không block socket event loop."""
+        try:
+            rslt = await printer.doJob(filename, job_id=targetJobId)
+
+            await asyncio.sleep(5)
+            if rslt:
+                if targetJob:
+                    await cJob.notify(targetJob['v_id'], 'Completed')
+                await asyncio.sleep(5)
+                await printer.removeFile(filename)
+                print('File is removed.')
+        finally:
+            if session:
+                await session.close()
 
     async def on_cancelCurrentJob(self, msg):
         tempProfileMachine = await hdl.getSecret('profile_machine', 'session')

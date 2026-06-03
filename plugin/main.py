@@ -22,6 +22,7 @@ from src.controller import cUser, cMachine, cAgent
 import asyncio
 import json
 from src.library import handler as hdl
+from src.library import config_reader as cfg  # Config reader for spdklipper.conf
 from libs import socket_manager as soc
 from utils import util as soc_util
 from fastapi.responses import JSONResponse
@@ -47,6 +48,15 @@ else:
 
 load_dotenv(dotenv_path=base_path / ".env", override=True) # Load environment variables at the very beginning, overriding existing ones
 # End load env.
+
+# --- Parse CLI arguments for -c (config) and -l (log) ---
+_cli_args = cfg.parse_cli_args()
+_config_path = cfg.resolve_config_path(_cli_args.get('config_path'))
+if _config_path:
+    print(f"[Config] Using config file: {_config_path}")
+else:
+    print("[Config] No config file found. Web login will be used if needed.")
+# --- End CLI args ---
 
 # --- Security: Restrict .env file permissions on startup ---
 # On Unix systems (Raspberry Pi), ensure .env is owner-read-only
@@ -137,8 +147,69 @@ async def lifespan(app: FastAPI):
     # Create model (disabled — detection feature not yet active).
     # await hdl.createModel()
 
+    # --- Auto-login from config file (spdklipper.conf) ---
+    creds = cfg.read_credentials(_config_path)
+    config_has_creds = cfg.has_valid_credentials(creds) and creds['machine_id']
+
+    # Check if machine_id in config has CHANGED since last session.
+    # If so, reset the old session so auto-login re-authenticates with the new machine.
+    if config_has_creds:
+        tempProfileMachine = await hdl.getSecret('profile_machine', 'session')
+        if tempProfileMachine:
+            try:
+                old_machine_data = json.loads(tempProfileMachine)
+                old_machine_id = old_machine_data.get('o_identify_number', '')
+                if old_machine_id and old_machine_id != creds['machine_id']:
+                    print(f"[AutoLogin] Phát hiện machine_id thay đổi: '{old_machine_id}' → '{creds['machine_id']}'")
+                    print("[AutoLogin] Đang xóa session cũ để đăng nhập lại với máy mới...")
+                    # resetSecret is a sync function, run in executor to avoid blocking
+                    loop = asyncio.get_event_loop()
+                    await loop.run_in_executor(None, hdl.resetSecret, 'session')
+                    await loop.run_in_executor(None, hdl.resetSecret, 'local')
+                    # Also close any existing socket connection
+                    await soc_util.close_socket_connection()
+            except Exception as e:
+                print(f"[AutoLogin] Lỗi khi kiểm tra machine_id cũ: {e}")
+
+    # Only attempt auto-login if no existing session is found.
+    tempProfileUser = await hdl.getSecret('profile_user', 'session')
+    if not tempProfileUser:
+        if config_has_creds:
+            print("[AutoLogin] Phát hiện thông tin đăng nhập trong config. Đang tự động đăng nhập...")
+            try:
+                # Step 1: Verify agent
+                agent_id = await cAgent.verify(agentDomain, agentDevice)
+                if not agent_id:
+                    print("[AutoLogin] Lỗi: Xác minh đại lý thất bại.")
+                else:
+                    # Step 2: Login user
+                    user_id = await cUser.verify(creds['username'], creds['password'])
+                    if not user_id:
+                        print("[AutoLogin] Lỗi: Đăng nhập thất bại. Kiểm tra lại username/password.")
+                    else:
+                        # Step 3: Verify machine with exact Machine ID from config
+                        print(f"[AutoLogin] Sử dụng Machine ID từ config: {creds['machine_id']}")
+                        machine_id = await cMachine.verify(user_id, creds['machine_id'])
+                        if not machine_id:
+                            print(f"[AutoLogin] Lỗi: Không tìm thấy máy với ID '{creds['machine_id']}' trong tài khoản.")
+                        else:
+                            # Step 4: Connect socket
+                            print("[AutoLogin] Đăng nhập và xác thực máy in thành công!")
+                            asyncio.create_task(soc_util.connect_socket())
+            except Exception as e:
+                print(f"[AutoLogin] Lỗi trong quá trình tự động đăng nhập: {e}")
+        else:
+            if not creds['machine_id']:
+                print("[AutoLogin] Thiếu machine_id trong config. Cần điền đủ username, password và machine_id.")
+            else:
+                print("[AutoLogin] Không tìm thấy thông tin đăng nhập trong config. Dùng giao diện web để đăng nhập.")
+    else:
+        print("[AutoLogin] Đã có phiên làm việc cũ. Bỏ qua tự động đăng nhập.")
+    # --- End auto-login ---
+
     asyncio.create_task(periodic_check_connection())
     asyncio.create_task(periodic_refresh_session())
+    asyncio.create_task(periodic_check_machine_id())
     # Redirect stdout to our custom writer
     sys.stdout = LogWriter(sys.stdout, getSession)
 
@@ -363,12 +434,72 @@ async def check_connection_endpoint():
 async def periodic_check_connection():
     while True:
         try:
-            result = await check_connection_endpoint()
-            print(f"[CheckConnection] {result}")
+            # Nếu socket chưa kết nối, tự động kết nối lại
+            if not soc.manager.client or not soc.manager.client.connected:
+                print("[CheckConnection] Socket chưa kết nối. Đang thử kết nối lại...")
+                asyncio.create_task(soc_util.connect_socket())
+                await asyncio.sleep(5)  # Chờ một chút để kết nối
+            else:
+                result = await check_connection_endpoint()
+                print(f"[CheckConnection] {result}")
         except Exception as e:
             print(f"[CheckConnection] Error: {e}")
 
         await asyncio.sleep(30)
+
+async def periodic_check_machine_id():
+    """Kiểm tra định kỳ mỗi 30 giây nếu machine_id trong config thay đổi.
+    Nếu phát hiện thay đổi, tự động xóa session cũ và đăng nhập lại với máy mới."""
+    last_known_machine_id = None
+    while True:
+        try:
+            await asyncio.sleep(30)
+
+            creds = cfg.read_credentials(_config_path)
+            if not cfg.has_valid_credentials(creds) or not creds['machine_id']:
+                continue
+
+            new_machine_id = creds['machine_id']
+
+            # Lưu machine_id lần đầu để làm mốc so sánh
+            if last_known_machine_id is None:
+                last_known_machine_id = new_machine_id
+                continue
+
+            # Nếu machine_id thay đổi so với lần kiểm tra trước
+            if new_machine_id != last_known_machine_id:
+                print(f"[MachineWatch] Phát hiện machine_id thay đổi: '{last_known_machine_id}' → '{new_machine_id}'")
+                print("[MachineWatch] Đang xóa session cũ và đăng nhập lại với máy mới...")
+
+                # Reset session
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(None, hdl.resetSecret, 'session')
+                await loop.run_in_executor(None, hdl.resetSecret, 'local')
+                await soc_util.close_socket_connection()
+
+                # Cập nhật mốc mới
+                last_known_machine_id = new_machine_id
+
+                # Thực hiện auto-login với machine_id mới
+                agent_id = await cAgent.verify(agentDomain, agentDevice)
+                if not agent_id:
+                    print("[MachineWatch] Lỗi: Xác minh đại lý thất bại.")
+                    continue
+
+                user_id = await cUser.verify(creds['username'], creds['password'])
+                if not user_id:
+                    print("[MachineWatch] Lỗi: Đăng nhập thất bại. Kiểm tra lại username/password.")
+                    continue
+
+                machine_id = await cMachine.verify(user_id, creds['machine_id'])
+                if not machine_id:
+                    print(f"[MachineWatch] Lỗi: Không tìm thấy máy với ID '{creds['machine_id']}' trong tài khoản.")
+                    continue
+
+                print(f"[MachineWatch] Đăng nhập và xác thực máy in '{creds['machine_id']}' thành công!")
+                asyncio.create_task(soc_util.connect_socket())
+        except Exception as e:
+            print(f"[MachineWatch] Lỗi: {e}")
 
 async def periodic_refresh_session():
     """Làm mới token tự động mỗi 10 phút nếu người dùng đã đăng nhập."""

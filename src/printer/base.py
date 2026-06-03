@@ -35,6 +35,7 @@ class BasePrinter(ABC):
     async def doJob(self, filename: str, **kwargs):
         """
         Default implementation for basic job execution loop.
+        Chạy trong background task (create_task) để không block các sự kiện socket khác.
         """
         rslt = False
         
@@ -56,6 +57,12 @@ class BasePrinter(ABC):
                 rslt = True
                 
         return rslt
+
+    # async def doJobWithFailureDetection(self, filename: str, targetJobId: str, addressCamera: str, **kwargs):
+    #     """
+    #     Reserved for future use with camera-based failure detection.
+    #     """
+    #     pass
 
     @abstractmethod
     async def runCancel(self):
