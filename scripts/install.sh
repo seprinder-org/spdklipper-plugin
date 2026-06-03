@@ -166,7 +166,7 @@ install_packages() {
   PKGLIST=""
   report_status "Running apt-get update..."
   sudo apt-get update --allow-releaseinfo-change
-  PKGLIST="python3-virtualenv python3-numpy libuv1 ffmpeg x264 libx264-dev libjpeg*-turbo libwebp-dev"
+  PKGLIST="python3-virtualenv python3-numpy libuv1t64 ffmpeg x264 libx264-dev libjpeg*-turbo libwebp-dev"
   report_status "Installing packages..."
   sudo apt-get install --yes ${PKGLIST}
 }
