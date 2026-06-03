@@ -163,10 +163,13 @@ stop_service() {
 }
 
 install_packages() {
-  PKGLIST=""
   report_status "Running apt-get update..."
   sudo apt-get update --allow-releaseinfo-change
-  PKGLIST="python3-virtualenv python3-numpy libuv1 ffmpeg x264 libx264-dev libjpeg*-turbo libwebp-dev"
+  local libuv_pkg="libuv1"
+  if apt-cache show libuv1t64 &>/dev/null; then
+    libuv_pkg="libuv1t64"
+  fi
+  PKGLIST="python3-virtualenv python3-numpy ${libuv_pkg} ffmpeg x264 libx264-dev libjpeg*-turbo libwebp-dev"
   report_status "Installing packages..."
   sudo apt-get install --yes ${PKGLIST}
 }
