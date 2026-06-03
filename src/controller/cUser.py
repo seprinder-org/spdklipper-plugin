@@ -3,24 +3,7 @@ from src.library import handler as hdl
 from src.controller import cUser, cMachine
 import json
 
-# Start load env.
-from dotenv import load_dotenv
-import sys
-from pathlib import Path
 from constants import HOST_SERVER as hostServer
-
-
-def get_base_path() -> Path:
-    """Get the base path of the application."""
-    if getattr(sys, 'frozen', False):
-        return Path(sys._MEIPASS)
-    else:
-        return Path(os.getcwd())
-
-base_path = get_base_path()
-
-load_dotenv(dotenv_path=base_path / ".env", override=True) # Load environment variables at the very beginning, overriding existing ones
-# End load env.
 
 
 

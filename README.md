@@ -47,30 +47,14 @@ Hệ thống được thiết kế để chạy trực tiếp trên các bộ gi
    - **Raspberry Pi 4/5 (64-bit)**: `pip install -r requirements-aarch64.txt`
    - **Raspberry Pi cũ (32-bit)**: `pip install -r requirements-armv7l.txt` -->
 
-3. **Cấu hình biến môi trường**:
-   Sao chép file `.env.example` thành `.env` và điền các thông tin cần thiết (URL Server, API Key...).
+3. **Cấu hình**:
+   Các cấu hình như URL kết nối (`HOST_CONNECT`, `HOST_SERVER`) hay cổng chạy ứng dụng (`PORT`) được đặt trực tiếp trong file [constant.py](file:///c:/Users/Admin/Desktop/spdproject/spdklipper-plugin/constants/constant.py).
 
 4. **Khởi chạy**:
    ```bash
-   python main.py
+   python plugin/main.py
    ```
    Sau khi chạy, bạn có thể truy cập giao diện quản lý cục bộ tại: `http://localhost:1122`
-
----
-
-## 4. Triển khai với Docker
-
-Nếu bạn muốn chạy SPD Bridge trong môi trường container:
-
-**Build Image:**
-```bash
-docker compose build
-```
-
-**Khởi chạy:**
-```bash
-docker compose up -d
-```
 
 ---
 

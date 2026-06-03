@@ -15,7 +15,6 @@ except ImportError:
     certifi = None
 from pathlib import Path
 from urllib import parse
-from dotenv import load_dotenv
 from sqlmodel import Session, select
 from src.database.sqlite3 import getSession, SocketStatus # Import getSession and SocketStatus
 from datetime import datetime
@@ -45,12 +44,6 @@ accessToken = ''
 refreshToken = ''
 isAmsUsed = False
 
-# Load .env
-if getattr(sys, 'frozen', False):
-    base_path = Path(sys._MEIPASS)
-else:
-    base_path = Path(os.getcwd())
-load_dotenv(dotenv_path=base_path / ".env", override=True)
 if certifi:
     os.environ['SSL_CERT_FILE'] = certifi.where()
     os.environ['REQUESTS_CA_BUNDLE'] = certifi.where()

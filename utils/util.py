@@ -8,25 +8,6 @@ import sys
 import os
 from pathlib import Path
 
-def get_base_path() -> Path:
-    """
-    Get the base path of the application.
-
-    Returns:
-        Path: The application base directory
-        - When running from PyInstaller binary: sys._MEIPASS
-        - When running from Python source: current working directory
-
-    Example:
-        >>> base_path = get_base_path()
-        >>> env_file = base_path / ".env"
-    """
-    if getattr(sys, 'frozen', False):
-        # Running from PyInstaller binary (.exe, .bin)
-        return Path(sys._MEIPASS)
-    else:
-        # Running from Python source code
-        return Path(os.getcwd())
 
 async def connect_socket():
     """Tạo và duy trì kết nối socket."""

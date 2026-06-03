@@ -34,19 +34,8 @@ import datetime
 # print('For deployment')
 
 # Start load env.
-from dotenv import load_dotenv
-
-if getattr(sys, 'frozen', False):
-    # Đang chạy từ file .exe/.bin đã được PyInstaller build
-    base_path = Path(sys._MEIPASS)
-    exe_path = Path(sys.executable).parent
-else:
-    # Khi chạy từ source: dùng vị trí file main.py để xác định project root
-    # File main.py nằm ở plugin/main.py, project root là parent của plugin/
-    base_path = Path(__file__).resolve().parent.parent
-    exe_path = base_path
-
-load_dotenv(dotenv_path=base_path / ".env", override=True) # Load environment variables at the very beginning, overriding existing ones
+base_path = Path(__file__).resolve().parent.parent
+exe_path = base_path
 # End load env.
 
 # --- Parse CLI arguments for -c (config) and -l (log) ---
@@ -57,19 +46,6 @@ if _config_path:
 else:
     print("[Config] No config file found. Web login will be used if needed.")
 # --- End CLI args ---
-
-# --- Security: Restrict .env file permissions on startup ---
-# On Unix systems (Raspberry Pi), ensure .env is owner-read-only
-_env_path = base_path / ".env"
-if _env_path.exists():
-    try:
-        current_perms = os.stat(_env_path).st_mode & 0o777
-        # Only tighten permissions if they're too permissive
-        if current_perms > 0o600:
-            os.chmod(_env_path, 0o600)
-    except Exception:
-        pass  # Best-effort on Windows or permission-limited environments
-# --- End security ---
 
 # Function to check if a port is in use
 def is_port_in_use(port):

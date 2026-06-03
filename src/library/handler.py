@@ -24,27 +24,15 @@ from src.controller import cUser
 from cryptography.fernet import Fernet
 
 # Start load env.
-from dotenv import load_dotenv
-import sys
-from pathlib import Path
+from constants import SPD_SECRET_KEY, PATH_DB
 
-if getattr(sys, 'frozen', False):
-    # Đang chạy từ file .exe/.bin đã được PyInstaller build
-    base_path = Path(sys._MEIPASS)
-else:
-    # Dùng __file__ để lấy project root, bất kể working directory là gì
-    base_path = Path(__file__).resolve().parent.parent.parent
-
-load_dotenv(dotenv_path=base_path / ".env", override=True) # Load environment variables at the very beginning, overriding existing ones
-# End load env.
-
-# SPD_SECRET_KEY is OPTIONAL in .env for security.
+# SPD_SECRET_KEY is OPTIONAL in constants for security.
 # If not set, the system auto-generates a key on first run and stores it
-# in the database (see loadKey()). This means even if .env is leaked,
+# in the database (see loadKey()). This means even if config is leaked,
 # the master encryption key remains protected inside the SQLite DB.
-# On Raspberry Pi, both .env and db.sqlite3 should have chmod 600.
-spdSecretKey = os.getenv('SPD_SECRET_KEY') or ''  # Optional: master key from env
-pathDb = os.getenv('PATH_DB')
+# On Raspberry Pi, db.sqlite3 should have chmod 600.
+spdSecretKey = SPD_SECRET_KEY or ''  # Optional: master key from constants
+pathDb = PATH_DB
 
 secretKey = None
 
