@@ -328,6 +328,29 @@ report_status "Then use RESTART_SPDK from Fluidd/Mainsail console."
 }
 
 
+add_to_moonraker_asvc() {
+  """
+  Add spdklipper-plugin to moonraker.asvc if not already present.
+  This ensures Moonraker allows the plugin service to be managed.
+  """
+  local asvc_path="/home/chien/printer_data/moonraker.asvc"
+
+  if [ ! -f "$asvc_path" ]; then
+    warn_msg "moonraker.asvc not found at ${asvc_path}. Skipping."
+    return 0
+  fi
+
+  if grep -q "^spdklipper-plugin$" "$asvc_path"; then
+    ok_msg "spdklipper-plugin already exists in moonraker.asvc. Skipping."
+    return 0
+  fi
+
+  report_status "Adding spdklipper-plugin to moonraker.asvc..."
+  echo "spdklipper-plugin" >> "$asvc_path"
+  ok_msg "spdklipper-plugin added to moonraker.asvc"
+}
+
+
 create_virtualenv() {
   report_status "Installing python virtual environment..."
 
@@ -404,6 +427,9 @@ install_instances(){
 
   # Add RESTART_SPDK macro to printer.cfg
   add_restart_macro
+
+  # Add spdklipper-plugin to moonraker.asvc
+  add_to_moonraker_asvc
 
   # Secure sensitive files after installation
   secure_sensitive_files
