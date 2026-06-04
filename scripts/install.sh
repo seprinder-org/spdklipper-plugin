@@ -333,14 +333,14 @@ add_to_moonraker_asvc() {
   Add spdklipper-plugin to moonraker.asvc if not already present.
   This ensures Moonraker allows the plugin service to be managed.
   """
-  local asvc_path="/home/chien/printer_data/moonraker.asvc"
+  local asvc_path="${HOME}/printer_data/moonraker.asvc"
 
   if [ ! -f "$asvc_path" ]; then
     warn_msg "moonraker.asvc not found at ${asvc_path}. Skipping."
     return 0
   fi
 
-  if grep -q "^spdklipper-plugin$" "$asvc_path"; then
+  if grep -q "spdklipper-plugin" "$asvc_path"; then
     ok_msg "spdklipper-plugin already exists in moonraker.asvc. Skipping."
     return 0
   fi
