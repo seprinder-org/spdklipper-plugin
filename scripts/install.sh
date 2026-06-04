@@ -228,14 +228,12 @@ report_status "File permission hardening complete."
 
 
 add_update_manager_config() {
-"""
-Add Moonraker update manager configuration for SPDKlipper plugin.
-This allows Klipper's update manager (Fluidd/Mainsail) to automatically
-git pull and restart the plugin when updates are available.
-
-The config is appended to moonraker.conf if not already present.
-"""
-local moonraker_conf="${KLIPPER_CONF_DIR}/moonraker.conf"
+  # Add Moonraker update manager configuration for SPDKlipper plugin.
+  # This allows Klipper's update manager (Fluidd/Mainsail) to automatically
+  # git pull and restart the plugin when updates are available.
+  #
+  # The config is appended to moonraker.conf if not already present.
+  local moonraker_conf="${KLIPPER_CONF_DIR}/moonraker.conf"
 
 if [ ! -f "$moonraker_conf" ]; then
   warn_msg "moonraker.conf not found at ${moonraker_conf}. Skipping update manager config."
@@ -270,12 +268,10 @@ report_status "  sudo systemctl restart moonraker"
 
 
 add_restart_macro() {
-"""
-Add RESTART_SPDK macro to printer.cfg and configure Moonraker authorization.
-This macro allows users to restart the SPDKlipper plugin service
-directly from the Klipper console (Fluidd/Mainsail) via Moonraker API.
-"""
-local printer_cfg="${KLIPPER_CONF_DIR}/printer.cfg"
+  # Add RESTART_SPDK macro to printer.cfg and configure Moonraker authorization.
+  # This macro allows users to restart the SPDKlipper plugin service
+  # directly from the Klipper console (Fluidd/Mainsail) via Moonraker API.
+  local printer_cfg="${KLIPPER_CONF_DIR}/printer.cfg"
 local moonraker_conf="${KLIPPER_CONF_DIR}/moonraker.conf"
 
 # --- Step 1: Add [authorization] to moonraker.conf if missing ---
@@ -329,20 +325,18 @@ report_status "Then use RESTART_SPDK from Fluidd/Mainsail console."
 
 
 add_to_moonraker_asvc() {
-  """
-  Add spdklipper-plugin to moonraker.asvc if not already present.
-  This ensures Moonraker allows the plugin service to be managed.
-  """
+  # Add spdklipper-plugin to moonraker.asvc if not already present.
+  # This ensures Moonraker allows the plugin service to be managed.
   local asvc_path="${HOME}/printer_data/moonraker.asvc"
 
   report_status "Checking moonraker.asvc at ${asvc_path}..."
 
   # Create the file if it doesn't exist
-  # if [ ! -f "$asvc_path" ]; then
-  #   report_status "moonraker.asvc not found. Creating it..."
-  #   mkdir -p "$(dirname "$asvc_path")"
-  #   touch "$asvc_path"
-  # fi
+  if [ ! -f "$asvc_path" ]; then
+    report_status "moonraker.asvc not found. Creating it..."
+    mkdir -p "$(dirname "$asvc_path")"
+    touch "$asvc_path"
+  fi
 
   if grep -q "spdklipper-plugin" "$asvc_path"; then
     ok_msg "spdklipper-plugin already exists in moonraker.asvc. Skipping."
@@ -436,11 +430,11 @@ install_instances(){
   echo ""
   echo "###### Checking moonraker.asvc..."
   ASVC_PATH="${HOME}/printer_data/moonraker.asvc"
-  # if [ ! -f "$ASVC_PATH" ]; then
-  #   echo "###### moonraker.asvc not found. Creating it..."
-  #   mkdir -p "$(dirname "$ASVC_PATH")"
-  #   touch "$ASVC_PATH"
-  # fi
+  if [ ! -f "$ASVC_PATH" ]; then
+    echo "###### moonraker.asvc not found. Creating it..."
+    mkdir -p "$(dirname "$ASVC_PATH")"
+    touch "$ASVC_PATH"
+  fi
   if grep -q "spdklipper-plugin" "$ASVC_PATH"; then
     echo -e "${green}>>>>>> spdklipper-plugin already exists in moonraker.asvc. Skipping.${default}"
   else
