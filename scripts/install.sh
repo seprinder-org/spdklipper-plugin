@@ -335,10 +335,14 @@ add_to_moonraker_asvc() {
   """
   local asvc_path="${HOME}/printer_data/moonraker.asvc"
 
-  if [ ! -f "$asvc_path" ]; then
-    warn_msg "moonraker.asvc not found at ${asvc_path}. Skipping."
-    return 0
-  fi
+  report_status "Checking moonraker.asvc at ${asvc_path}..."
+
+  # Create the file if it doesn't exist
+  # if [ ! -f "$asvc_path" ]; then
+  #   report_status "moonraker.asvc not found. Creating it..."
+  #   mkdir -p "$(dirname "$asvc_path")"
+  #   touch "$asvc_path"
+  # fi
 
   if grep -q "spdklipper-plugin" "$asvc_path"; then
     ok_msg "spdklipper-plugin already exists in moonraker.asvc. Skipping."
@@ -429,7 +433,21 @@ install_instances(){
   add_restart_macro
 
   # Add spdklipper-plugin to moonraker.asvc
-  add_to_moonraker_asvc
+  echo ""
+  echo "###### Checking moonraker.asvc..."
+  ASVC_PATH="${HOME}/printer_data/moonraker.asvc"
+  # if [ ! -f "$ASVC_PATH" ]; then
+  #   echo "###### moonraker.asvc not found. Creating it..."
+  #   mkdir -p "$(dirname "$ASVC_PATH")"
+  #   touch "$ASVC_PATH"
+  # fi
+  if grep -q "spdklipper-plugin" "$ASVC_PATH"; then
+    echo -e "${green}>>>>>> spdklipper-plugin already exists in moonraker.asvc. Skipping.${default}"
+  else
+    echo "###### Adding spdklipper-plugin to moonraker.asvc..."
+    echo "spdklipper-plugin" >> "$ASVC_PATH"
+    echo -e "${green}>>>>>> spdklipper-plugin added to moonraker.asvc${default}"
+  fi
 
   # Secure sensitive files after installation
   secure_sensitive_files
