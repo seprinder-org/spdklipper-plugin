@@ -268,9 +268,15 @@ report_status "  sudo systemctl restart moonraker"
 
 
 add_restart_macro() {
-  # Add RESTART_SPDK macro to printer.cfg and configure Moonraker authorization.
-  # This macro allows users to restart the SPDKlipper plugin service
-  # directly from the Klipper console (Fluidd/Mainsail) via Moonraker API.
+  # Add RESTART_SPDK and FIRMWARE_RESTART+ macros to printer.cfg
+  # and configure Moonraker authorization.
+  #
+  # RESTART_SPDK: Standalone macro to restart the SPDKlipper plugin service
+  #   from the Klipper console (Fluidd/Mainsail) via Moonraker API.
+  #
+  # FIRMWARE_RESTART+: Overrides the default FIRMWARE_RESTART so that
+  #   clicking "Restart Firmware" in Fluidd/Mainsail also restarts the
+  #   SPDKlipper plugin service automatically.
   local printer_cfg="${KLIPPER_CONF_DIR}/printer.cfg"
 local moonraker_conf="${KLIPPER_CONF_DIR}/moonraker.conf"
 
@@ -292,21 +298,17 @@ EOF
   fi
 fi
 
-# --- Step 2: Add RESTART_SPDK macro to printer.cfg ---
+# --- Step 2: Add macros to printer.cfg ---
 if [ ! -f "$printer_cfg" ]; then
-  warn_msg "printer.cfg not found at ${printer_cfg}. Skipping RESTART_SPDK macro."
+  warn_msg "printer.cfg not found at ${printer_cfg}. Skipping SPDKlipper macros."
   return 0
 fi
 
-# Check if macro already exists
-if grep -q "\[gcode_macro RESTART_SPDK\]" "$printer_cfg"; then
-  ok_msg "RESTART_SPDK macro already exists in printer.cfg. Skipping."
-  return 0
-fi
+# --- Step 2a: Add RESTART_SPDK macro (standalone) ---
+if ! grep -q "\[gcode_macro RESTART_SPDK\]" "$printer_cfg"; then
+  report_status "Adding RESTART_SPDK macro to printer.cfg..."
 
-report_status "Adding RESTART_SPDK macro to printer.cfg..."
-
-cat >> "$printer_cfg" << 'EOF'
+  cat >> "$printer_cfg" << 'EOF'
 
 [gcode_macro RESTART_SPDK]
 description: Restart SPDKlipper plugin service
@@ -314,13 +316,41 @@ gcode:
     {action_call_remote_method("restart_service", service_name="spdklipper-plugin")}
 EOF
 
-ok_msg "RESTART_SPDK macro added to printer.cfg"
-report_status "You can now restart SPDKlipper from Fluidd/Mainsail console by running: RESTART_SPDK"
+  ok_msg "RESTART_SPDK macro added to printer.cfg"
+else
+  ok_msg "RESTART_SPDK macro already exists in printer.cfg. Skipping."
+fi
+
+# --- Step 2b: Override FIRMWARE_RESTART to also restart SPDKlipper ---
+if ! grep -q "\[gcode_macro FIRMWARE_RESTART\]" "$printer_cfg"; then
+  report_status "Adding FIRMWARE_RESTART+ macro to printer.cfg (restarts firmware + SPDKlipper)..."
+
+  cat >> "$printer_cfg" << 'EOF'
+
+[gcode_macro FIRMWARE_RESTART]
+description: Firmware restart + SPDKlipper plugin restart
+gcode:
+    # Step 1: Restart SPDKlipper plugin service first
+    {action_call_remote_method("restart_service", service_name="spdklipper-plugin")}
+    # Step 2: Wait briefly for the plugin to stop cleanly
+    G4 P2000
+    # Step 3: Perform the actual firmware restart
+    FIRMWARE_RESTART
+EOF
+
+  ok_msg "FIRMWARE_RESTART+ macro added to printer.cfg"
+else
+  ok_msg "FIRMWARE_RESTART+ macro already exists in printer.cfg. Skipping."
+fi
+
+report_status ""
+report_status "Macros installed:"
+report_status "  - RESTART_SPDK       : Restart SPDKlipper only (run from console)"
+report_status "  - FIRMWARE_RESTART   : Restarts firmware + SPDKlipper (Fluidd/Mainsail button)"
 report_status ""
 report_status "IMPORTANT: After install, run these commands on your Raspberry Pi:"
 report_status "  1. sudo systemctl restart moonraker"
 report_status "  2. sudo systemctl restart klipper"
-report_status "Then use RESTART_SPDK from Fluidd/Mainsail console."
 }
 
 
@@ -423,7 +453,7 @@ install_instances(){
   # Add Moonraker update manager config
   add_update_manager_config
 
-  # Add RESTART_SPDK macro to printer.cfg
+  # Add RESTART_SPDK and FIRMWARE_RESTART+ macros to printer.cfg
   add_restart_macro
 
   # Add spdklipper-plugin to moonraker.asvc
