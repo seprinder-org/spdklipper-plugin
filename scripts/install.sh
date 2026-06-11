@@ -458,7 +458,7 @@ install_instances(){
   add_restart_macro
 
   # Install Moonraker SPD status component (reads spd_status.json and sends M117)
-  add_moonraker_spd_status_component()
+  add_moonraker_spd_status_component
 
   # Add spdklipper-plugin to moonraker.asvc
   echo ""
