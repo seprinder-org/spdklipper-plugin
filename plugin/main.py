@@ -27,7 +27,7 @@ from libs import socket_manager as soc
 from utils import util as soc_util
 from fastapi.responses import JSONResponse
 from fastapi import WebSocket, WebSocketDisconnect
-from constants import AGENT_DOMAIN as agentDomain, AGENT_DEVICE as agentDevice, PORT as port
+from constants import AGENT_DOMAIN as agentDomain, AGENT_DEVICE as agentDevice, PORT as port, override_from_config
 
 import datetime
 
@@ -45,6 +45,9 @@ if _config_path:
     print(f"[Config] Using config file: {_config_path}")
 else:
     print("[Config] No config file found. Web login will be used if needed.")
+
+# Override HOST_SERVER / HOST_CONNECT from config file [server] section
+override_from_config(_config_path)
 # --- End CLI args ---
 
 # Function to check if a port is in use

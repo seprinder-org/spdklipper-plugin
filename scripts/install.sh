@@ -355,6 +355,53 @@ report_status "Then use RESTART_SPDK from Fluidd/Mainsail console."
 }
 
 
+add_moonraker_spd_status_component() {
+  # Install Moonraker SPD status component.
+  #
+  # This copies scripts/moonraker_spd_status.py to the Moonraker components
+  # directory and adds [spd_status] to moonraker.conf so that the connection
+  # status is displayed on Fluidd/Mainsail via M117.
+  local moonraker_dir="${HOME}/moonraker"
+  local component_dest="${moonraker_dir}/moonraker/components/spd_status.py"
+  local source_file="${SPDKLIPPER_PLUGIN_DIR}/scripts/moonraker_spd_status.py"
+  local moonraker_conf="${KLIPPER_CONF_DIR}/moonraker.conf"
+
+  # Check if Moonraker is installed
+  if [ ! -d "$moonraker_dir" ]; then
+    warn_msg "Moonraker directory not found at ${moonraker_dir}. Skipping SPD status component."
+    return 0
+  fi
+
+  # Copy the component file
+  if [ ! -f "$source_file" ]; then
+    warn_msg "Source file ${source_file} not found. Skipping SPD status component."
+    return 0
+  fi
+
+  report_status "Installing Moonraker SPD status component..."
+  mkdir -p "$(dirname "$component_dest")"
+  cp "$source_file" "$component_dest"
+  ok_msg "SPD status component installed to ${component_dest}"
+
+  # Add [spd_status] to moonraker.conf if not already present
+  if [ -f "$moonraker_conf" ]; then
+    if grep -q "\[spd_status\]" "$moonraker_conf"; then
+      ok_msg "[spd_status] already exists in moonraker.conf. Skipping."
+    else
+      report_status "Adding [spd_status] to moonraker.conf..."
+      printf "\n# SPD Klipper connection status display\n[spd_status]\n" >> "$moonraker_conf"
+      ok_msg "[spd_status] added to moonraker.conf"
+      report_status "NOTE: Restart Moonraker to load the component:"
+      report_status "  sudo systemctl restart moonraker"
+    fi
+  else
+    warn_msg "moonraker.conf not found at ${moonraker_conf}."
+    warn_msg "After creating moonraker.conf, add the following:"
+    warn_msg "  [spd_status]"
+  fi
+}
+
+
 add_to_moonraker_asvc() {
   # Add spdklipper-plugin to moonraker.asvc if not already present.
   # This ensures Moonraker allows the plugin service to be managed.

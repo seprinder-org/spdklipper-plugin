@@ -1,5 +1,17 @@
 [server]
-server: localhost
+# SPD server configuration.
+# If these are set, the plugin will connect to custom servers instead of
+# the default production servers (seprinder.com).
+#
+# --- host_server ---
+# The SPD backend API server URL (default: http://localhost:3000)
+# Example: https://seprinder.com
+# host_server: http://localhost:3000
+#
+# --- host_connect ---
+# The SPD WebSocket / Connect server URL (default: http://localhost:3030)
+# Example: wss://connect.seprinder.com
+# host_connect: http://localhost:3030
 
 [credentials]
 # SPD account credentials for auto-login.
