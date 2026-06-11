@@ -107,6 +107,21 @@ remove_all(){
   rm -f "${SPDKLIPPER_PLUGIN_DIR}/db.sqlite3"
   echo -e "Done!"
 
+  ### remove SPD status file created by socket_manager
+  echo -e "Removing SPD status file ..."
+  rm -f "${SPDKLIPPER_PLUGIN_CONF}/spd_status.json"
+  echo -e "Done!"
+
+  ### remove Moonraker SPD status component
+  echo -e "Removing Moonraker SPD status component ..."
+  rm -f "${HOME}/moonraker/moonraker/components/spd_status.py"
+  echo -e "Done!"
+
+  echo -e ""
+  echo -e "${yellow}NOTE: You should also remove [spd_status] from moonraker.conf manually.${default}"
+  echo -e "${yellow}  nano ${SPDKLIPPER_PLUGIN_CONF}/moonraker.conf${default}"
+  echo -e "${yellow}Then restart Moonraker: sudo systemctl restart moonraker${default}"
+
 }
 
 confirm_uninstall

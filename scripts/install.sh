@@ -278,7 +278,7 @@ add_restart_macro() {
   #   clicking "Restart Firmware" in Fluidd/Mainsail also restarts the
   #   SPDKlipper plugin service automatically.
   local printer_cfg="${KLIPPER_CONF_DIR}/printer.cfg"
-local moonraker_conf="${KLIPPER_CONF_DIR}/moonraker.conf"
+  local moonraker_conf="${KLIPPER_CONF_DIR}/moonraker.conf"
 
 # --- Step 1: Add [authorization] to moonraker.conf if missing ---
 if [ -f "$moonraker_conf" ]; then
@@ -344,13 +344,14 @@ else
 fi
 
 report_status ""
-report_status "Macros installed:"
+report_status "SPDKlipper macros installed:"
 report_status "  - RESTART_SPDK       : Restart SPDKlipper only (run from console)"
 report_status "  - FIRMWARE_RESTART   : Restarts firmware + SPDKlipper (Fluidd/Mainsail button)"
 report_status ""
 report_status "IMPORTANT: After install, run these commands on your Raspberry Pi:"
 report_status "  1. sudo systemctl restart moonraker"
 report_status "  2. sudo systemctl restart klipper"
+report_status "Then use RESTART_SPDK from Fluidd/Mainsail console."
 }
 
 
@@ -455,6 +456,9 @@ install_instances(){
 
   # Add RESTART_SPDK and FIRMWARE_RESTART+ macros to printer.cfg
   add_restart_macro
+
+  # Install Moonraker SPD status component (reads spd_status.json and sends M117)
+  add_moonraker_spd_status_component()
 
   # Add spdklipper-plugin to moonraker.asvc
   echo ""

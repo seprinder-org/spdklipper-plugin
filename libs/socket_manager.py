@@ -19,7 +19,6 @@ from sqlmodel import Session, select
 from src.database.sqlite3 import getSession, SocketStatus # Import getSession and SocketStatus
 from datetime import datetime
 from src.library import handler as hdl
-import aiofiles
 
 from src.library import exception as exp
 from src.controller import cJob, cStorage, cSlicer, cMachineOs
@@ -32,6 +31,11 @@ from src.printer import klipper as klp # Kliper.
 # from src.printer import ender5maxchinese as efmc # Ender 5 Max Chinese.
 # from src.printer import kobraoscloud as koc # KobraOs cloud.
 # from src.printer import saturn4ultra as s4u # Saturn 4 Ultra.
+
+# --- SPD Status file path (for Moonraker component integration) ---
+# This file is read by the Moonraker custom component (spd_status.py)
+# to display SPD connection status on Fluidd/Mainsail via M117.
+SPD_STATUS_FILE = os.path.expanduser("~/printer_data/config/spd_status.json")
 
 # Track memory
 tracemalloc.start()
@@ -428,6 +432,55 @@ def _perform_socket_status_db_operations(is_connected: bool):
         session.add(socket_status_entry)
         session.commit()
         session.refresh(socket_status_entry)
+
+    # Write status file for Moonraker component integration
+    _write_spd_status_file(is_connected)
+
+def _write_spd_status_file(is_connected: bool):
+    """
+    Write SPD connection status to a JSON file that the Moonraker custom component
+    (spd_status.py) reads to display SPD status on Fluidd/Mainsail via M117.
+    """
+    try:
+        # Read profile_machine from DB to get machine_id
+        machine_id = ''
+        machine_name = ''
+        try:
+            import asyncio
+            # Use synchronous DB access since we're in an executor
+            from src.database.sqlite3 import Secret, engine
+            from sqlmodel import Session, select
+            from src.library.handler import base64Encode, decrypt
+
+            with Session(engine) as session:
+                encrypt_name = base64Encode('profile_machine')
+                oSecret = session.exec(
+                    select(Secret).where(Secret.name == encrypt_name, Secret.type == 'session')
+                ).first()
+                if oSecret:
+                    decrypted = asyncio.run(decrypt(oSecret.value))
+                    profile = json.loads(decrypted)
+                    machine_id = profile.get('o_identify_number', '')
+                    machine_name = profile.get('v_name', '')
+        except Exception:
+            pass
+
+        status_data = {
+            "machine_id": machine_id,
+            "machine_name": machine_name,
+            "connected": is_connected,
+            "status": "connected" if is_connected else "disconnected",
+            "timestamp": datetime.now().isoformat()
+        }
+
+        # Ensure directory exists
+        status_dir = os.path.dirname(SPD_STATUS_FILE)
+        os.makedirs(status_dir, exist_ok=True)
+
+        with open(SPD_STATUS_FILE, 'w') as f:
+            json.dump(status_data, f)
+    except Exception as e:
+        print(f"[SPD Status] Error writing status file: {e}")
 
 # Entry point
 async def _connect_to_socketio(client):
