@@ -268,11 +268,14 @@ report_status "  sudo systemctl restart moonraker"
 
 
 add_restart_macro() {
-  # Add RESTART_SPDK macro to printer.cfg and configure Moonraker authorization.
-  # This macro allows users to restart the SPDKlipper plugin service
-  # directly from the Klipper console (Fluidd/Mainsail) via Moonraker API.
+  # Add SPDKlipper macros to printer.cfg
+  # and configure Moonraker authorization.
+  #
+  # Macros added:
+  #   RESTART_SPDK       - Restart SPDKlipper plugin service (standalone)
+  #   FIRMWARE_RESTART   - Override: restart firmware + SPDKlipper plugin
   local printer_cfg="${KLIPPER_CONF_DIR}/printer.cfg"
-local moonraker_conf="${KLIPPER_CONF_DIR}/moonraker.conf"
+  local moonraker_conf="${KLIPPER_CONF_DIR}/moonraker.conf"
 
 # --- Step 1: Add [authorization] to moonraker.conf if missing ---
 if [ -f "$moonraker_conf" ]; then
@@ -292,21 +295,17 @@ EOF
   fi
 fi
 
-# --- Step 2: Add RESTART_SPDK macro to printer.cfg ---
+# --- Step 2: Add macros to printer.cfg ---
 if [ ! -f "$printer_cfg" ]; then
-  warn_msg "printer.cfg not found at ${printer_cfg}. Skipping RESTART_SPDK macro."
+  warn_msg "printer.cfg not found at ${printer_cfg}. Skipping SPDKlipper macros."
   return 0
 fi
 
-# Check if macro already exists
-if grep -q "\[gcode_macro RESTART_SPDK\]" "$printer_cfg"; then
-  ok_msg "RESTART_SPDK macro already exists in printer.cfg. Skipping."
-  return 0
-fi
+# --- Step 2a: Add RESTART_SPDK macro (standalone) ---
+if ! grep -q "\[gcode_macro RESTART_SPDK\]" "$printer_cfg"; then
+  report_status "Adding RESTART_SPDK macro to printer.cfg..."
 
-report_status "Adding RESTART_SPDK macro to printer.cfg..."
-
-cat >> "$printer_cfg" << 'EOF'
+  cat >> "$printer_cfg" << 'EOF'
 
 [gcode_macro RESTART_SPDK]
 description: Restart SPDKlipper plugin service
@@ -314,13 +313,87 @@ gcode:
     {action_call_remote_method("restart_service", service_name="spdklipper-plugin")}
 EOF
 
-ok_msg "RESTART_SPDK macro added to printer.cfg"
-report_status "You can now restart SPDKlipper from Fluidd/Mainsail console by running: RESTART_SPDK"
+  ok_msg "RESTART_SPDK macro added to printer.cfg"
+else
+  ok_msg "RESTART_SPDK macro already exists in printer.cfg. Skipping."
+fi
+
+# --- Step 2b: Override FIRMWARE_RESTART to also restart SPDKlipper ---
+if ! grep -q "\[gcode_macro FIRMWARE_RESTART\]" "$printer_cfg"; then
+  report_status "Adding FIRMWARE_RESTART+ macro to printer.cfg (restarts firmware + SPDKlipper)..."
+
+  cat >> "$printer_cfg" << 'EOF'
+
+[gcode_macro FIRMWARE_RESTART]
+description: Firmware restart + SPDKlipper plugin restart
+gcode:
+    # Step 1: Restart SPDKlipper plugin service first
+    {action_call_remote_method("restart_service", service_name="spdklipper-plugin")}
+    # Step 2: Wait briefly for the plugin to stop cleanly
+    G4 P2000
+    # Step 3: Perform the actual firmware restart
+    FIRMWARE_RESTART
+EOF
+
+  ok_msg "FIRMWARE_RESTART+ macro added to printer.cfg"
+else
+  ok_msg "FIRMWARE_RESTART+ macro already exists in printer.cfg. Skipping."
+fi
+
+report_status ""
+report_status "SPDKlipper macros installed:"
+report_status "  - RESTART_SPDK       : Restart SPDKlipper only (run from console)"
+report_status "  - FIRMWARE_RESTART   : Restarts firmware + SPDKlipper (Fluidd/Mainsail button)"
 report_status ""
 report_status "IMPORTANT: After install, run these commands on your Raspberry Pi:"
 report_status "  1. sudo systemctl restart moonraker"
 report_status "  2. sudo systemctl restart klipper"
-report_status "Then use RESTART_SPDK from Fluidd/Mainsail console."
+}
+
+
+add_moonraker_spd_status_component() {
+  # Install the Moonraker custom component for SPD status display.
+  # This component reads spd_status.json and sends M117 to Klipper,
+  # displaying the SPD connection status on Fluidd/Mainsail.
+  local component_src="${SPDKLIPPER_PLUGIN_DIR}/scripts/moonraker_spd_status.py"
+  local moonraker_dir="${HOME}/moonraker"
+  local component_dst="${moonraker_dir}/moonraker/components/spd_status.py"
+  local moonraker_conf="${KLIPPER_CONF_DIR}/moonraker.conf"
+
+  # Check if Moonraker is installed
+  if [ ! -d "$moonraker_dir" ]; then
+    warn_msg "Moonraker directory not found at ${moonraker_dir}. Skipping Moonraker component."
+    return 0
+  fi
+
+  # Copy the component file to Moonraker's components directory
+  if [ -f "$component_src" ]; then
+    report_status "Installing Moonraker SPD status component..."
+    cp "$component_src" "$component_dst"
+    ok_msg "Moonraker SPD status component installed to ${component_dst}"
+  else
+    warn_msg "Moonraker SPD status component source not found at ${component_src}. Skipping."
+    return 0
+  fi
+
+  # Add [spd_status] to moonraker.conf if not already present
+  if [ -f "$moonraker_conf" ]; then
+    if grep -q "\[spd_status\]" "$moonraker_conf"; then
+      ok_msg "[spd_status] already exists in moonraker.conf. Skipping."
+    else
+      report_status "Adding [spd_status] to moonraker.conf..."
+      cat >> "$moonraker_conf" <<EOF
+
+# SPD Klipper Plugin - connection status display via M117
+[spd_status]
+EOF
+      ok_msg "[spd_status] added to moonraker.conf"
+      report_status "NOTE: You need to restart Moonraker for this to take effect:"
+      report_status "  sudo systemctl restart moonraker"
+    fi
+  else
+    warn_msg "moonraker.conf not found at ${moonraker_conf}. Skipping [spd_status] config."
+  fi
 }
 
 
@@ -425,6 +498,9 @@ install_instances(){
 
   # Add RESTART_SPDK macro to printer.cfg
   add_restart_macro
+
+  # Install Moonraker SPD status component (reads spd_status.json and sends M117)
+  add_moonraker_spd_status_component()
 
   # Add spdklipper-plugin to moonraker.asvc
   echo ""
