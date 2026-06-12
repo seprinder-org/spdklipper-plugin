@@ -1,4 +1,4 @@
-#!/bin/bash
+c#!/bin/bash
 # This script installs SPDKlipper plugin
 set -eu
 
