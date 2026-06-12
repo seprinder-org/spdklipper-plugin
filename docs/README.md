@@ -1,22 +1,24 @@
 # SPD Machine Info Display
 
-Hiển thị **Machine ID**, **Status**, **Last Seen** trên Fluidd/Mainsail thông qua Macro Group.
+Hiển thị **Machine ID**, **Status**, **Server Name** trên Fluidd/Mainsail Console.
 
 ## Kiến trúc
 
+Giải pháp **100% Klipper config** — không cần Moonraker component, không cần Python code trên Klipper.
+
 ```
-SPDKlipper Plugin (/machine/info)
-        │
-        ▼
-Moonraker machine_status component (Python aiohttp, mỗi 10s)
-        │
-        ├── Moonraker database namespace: machine_info
-        │
-        └── Klipper save_variables (variable: spd_machine_info)
-                │
-                ▼
-SPD_MACHINE_INFO macro → RESPOND → Fluidd Console
+[shell_command _FETCH_MACHINE_INFO]  →  curl + python3 → plugin API (/machine/info)
+        ↓
+[gcode_macro MACHINE_INFO]  →  RUN_SHELL_COMMAND → parse pipe-delimited → RESPOND
+        ↓
+[delayed_gcode MACHINE_INFO_STARTUP]  →  tự động chạy 10s sau khi Klipper khởi động
 ```
+
+**Luồng dữ liệu:**
+1. `[shell_command _FETCH_MACHINE_INFO]` chạy `curl` gọi API `http://127.0.0.1:1122/machine/info`
+2. `python3` parse JSON, xuất ra pipe-delimited: `machine_id|machine_name|connected|status`
+3. `MACHINE_INFO` macro parse kết quả bằng `raw.split("|")` trong Jinja2
+4. Hiển thị lên Console Fluidd qua `RESPOND`
 
 ## Cài đặt
 
@@ -28,30 +30,20 @@ cd ~/spdklipper-plugin
 ```
 
 Script sẽ tự động:
-- Copy Moonraker component (`machine_status.py`)
-- Copy Klipper macro (`spd_machine_info.cfg`)
-- Thêm `[machine_status]` vào `moonraker.conf`
-- Thêm `[save_variables]` và `[include spd_machine_info.cfg]` vào `printer.cfg`
-- Restart Moonraker + Klipper
+- Copy `spd_machine_info.cfg` vào thư mục config
+- Thêm `[include spd_machine_info.cfg]` vào `printer.cfg`
+- Restart Klipper
 
-### Cách 2: Thủ công (nếu đã có plugin)
+### Cách 2: Thủ công
 
 ```bash
-# 1. Copy Moonraker component
-cp ~/spdklipper-plugin/scripts/machine_status.py ~/moonraker/moonraker/components/machine_status.py
-
-# 2. Copy Klipper macro
+# 1. Copy macro file
 cp ~/spdklipper-plugin/scripts/spd_machine_info.cfg ~/printer_data/config/spd_machine_info.cfg
 
-# 3. Thêm vào moonraker.conf
-echo -e "\n[machine_status]" >> ~/printer_data/config/moonraker.conf
-
-# 4. Thêm vào printer.cfg (cần [save_variables] để SPD_MACHINE_INFO macro hoạt động)
-echo -e "\n[save_variables]\nfilename: ~/printer_data/config/save_variables.cfg" >> ~/printer_data/config/printer.cfg
+# 2. Thêm vào printer.cfg
 echo -e "\n[include spd_machine_info.cfg]" >> ~/printer_data/config/printer.cfg
 
-# 5. Restart
-sudo systemctl restart moonraker
+# 3. Restart Klipper
 sudo systemctl restart klipper
 ```
 
@@ -63,47 +55,23 @@ sudo systemctl restart klipper
 
 | Cách | Mô tả |
 |------|-------|
-| **Macro Button** | Settings → Macros → Add `SPD_MACHINE_INFO` → kéo ra dashboard → click để xem Machine ID, Status, Last Seen |
-| **Console** | Gõ `SPD_MACHINE_INFO` để xem chi tiết |
+| **Tự động** | 10s sau khi Klipper restart, macro tự chạy — info hiện trong Console |
+| **Macro Button** | Settings → Macros → Add `MACHINE_INFO` → kéo ra dashboard → click để xem |
+| **Console** | Gõ `MACHINE_INFO` để xem |
 
-### API
+### Machine ID tự động
 
-```bash
-# Moonraker API (từ machine_status component)
-curl http://localhost:7125/server/machine_status/info
+Machine ID được lấy **tự động** từ SPDKlipper plugin API (`/machine/info`), không cần cấu hình thủ công.
 
-# SPDKlipper Plugin API
-curl http://localhost:1122/machine/info
-```
-
-### Monitor script
-
-```bash
-python3 ~/spdklipper-plugin/scripts/spd_monitor.py --watch
-```
+Nếu bạn muốn ghi đè Machine ID hiển thị, sửa trong file `~/printer_data/config/spd_machine_info.cfg` tại dòng `[shell_command _FETCH_MACHINE_INFO]` — thay đổi URL hoặc tham số nếu cần.
 
 ---
 
-## Gỡ cài đặt
+## Yêu cầu
 
-```bash
-# 1. Xóa Moonraker component
-rm ~/moonraker/moonraker/components/machine_status.py
-
-# 2. Xóa Klipper macro
-rm ~/printer_data/config/spd_machine_info.cfg
-
-# 3. Xóa khỏi moonraker.conf
-sed -i '/\[machine_status\]/d' ~/printer_data/config/moonraker.conf
-
-# 4. Xóa khỏi printer.cfg
-sed -i '/spd_machine_info.cfg/d' ~/printer_data/config/printer.cfg
-# Lưu ý: Chỉ xóa [save_variables] nếu không có macro nào khác dùng nó
-
-# 5. Restart
-sudo systemctl restart moonraker
-sudo systemctl restart klipper
-```
+- SPDKlipper plugin đang chạy (cung cấp API `/machine/info` trên port 1122)
+- `curl` và `python3` đã được cài đặt trên Raspberry Pi
+- File `spd_machine_info.cfg` được include trong `printer.cfg`
 
 ---
 
@@ -111,7 +79,5 @@ sudo systemctl restart klipper
 
 | File | Vai trò |
 |------|---------|
-| [`scripts/machine_status.py`](../scripts/machine_status.py) | Moonraker component (fetch API → save_variables) |
-| [`scripts/spd_machine_info.cfg`](../scripts/spd_machine_info.cfg) | Klipper macro (đọc save_variables → hiển thị) |
+| [`scripts/spd_machine_info.cfg`](../scripts/spd_machine_info.cfg) | Klipper macro (shell_command + MACHINE_INFO + delayed_gcode) |
 | [`plugin/main.py`](../plugin/main.py) | FastAPI server + `/machine/info` endpoint |
-| [`scripts/spd_monitor.py`](../scripts/spd_monitor.py) | CLI monitor script |

@@ -304,16 +304,7 @@ if [ ! -f "$printer_cfg" ]; then
   return 0
 fi
 
-# --- Step 2a: Add [save_variables] if missing (required for SPD_MACHINE_INFO macro) ---
-if ! grep -q "\[save_variables\]" "$printer_cfg"; then
-  report_status "Adding [save_variables] to printer.cfg (required for SPD_MACHINE_INFO macro)..."
-  printf "\n[save_variables]\nfilename: ~/printer_data/config/save_variables.cfg\n" >> "$printer_cfg"
-  ok_msg "[save_variables] added to printer.cfg"
-else
-  ok_msg "[save_variables] already exists in printer.cfg. Skipping."
-fi
-
-# --- Step 2b: Include spd_machine_info.cfg ---
+# --- Step 2a: Include spd_machine_info.cfg ---
 if ! grep -q "spd_machine_info.cfg" "$printer_cfg"; then
   report_status "Adding [include spd_machine_info.cfg] to printer.cfg..."
   printf "\n[include spd_machine_info.cfg]\n" >> "$printer_cfg"
@@ -373,7 +364,7 @@ fi
 
 report_status ""
 report_status "SPDKlipper macros installed:"
-report_status "  - spd_machine_info.cfg : SPD_MACHINE_INFO macro (included)"
+report_status "  - spd_machine_info.cfg : MACHINE_INFO macro (included)"
 report_status "  - RESTART_SPDK         : Restart SPDKlipper only (run from console)"
 report_status "  - FIRMWARE_RESTART     : Restarts firmware + SPDKlipper (Fluidd/Mainsail button)"
 report_status ""
@@ -381,51 +372,41 @@ report_status "Services will be restarted automatically at the end of installati
 }
 
 
-add_moonraker_machine_status_component() {
-  # Install Moonraker Machine Status component.
+add_machine_info_macro() {
+  # Install SPD Machine Info macro to printer.cfg.
   #
-  # This copies scripts/machine_status.py to the Moonraker components
-  # directory and adds [machine_status] to moonraker.conf so that the
-  # machine info is fetched from the SPDKlipper plugin API and stored
-  # in Klipper's save_variables for the SPD_MACHINE_INFO macro.
-  local moonraker_dir="${HOME}/moonraker"
-  local component_dest="${moonraker_dir}/moonraker/components/machine_status.py"
-  local source_file="${SPDKLIPPER_PLUGIN_DIR}/scripts/machine_status.py"
-  local moonraker_conf="${KLIPPER_CONF_DIR}/moonraker.conf"
+  # This copies scripts/spd_machine_info.cfg to the Klipper config
+  # directory and adds [include spd_machine_info.cfg] to printer.cfg.
+  # The macro uses native Klipper variables (no Moonraker component needed).
+  local printer_cfg="${KLIPPER_CONF_DIR}/printer.cfg"
+  local macro_source="${SPDKLIPPER_PLUGIN_DIR}/scripts/spd_machine_info.cfg"
 
-  # Check if Moonraker is installed
-  if [ ! -d "$moonraker_dir" ]; then
-    warn_msg "Moonraker directory not found at ${moonraker_dir}. Skipping Machine Status component."
+  # Copy the macro file
+  if [ ! -f "$macro_source" ]; then
+    warn_msg "Source file ${macro_source} not found. Skipping Machine Info macro."
     return 0
   fi
 
-  # Copy the component file
-  if [ ! -f "$source_file" ]; then
-    warn_msg "Source file ${source_file} not found. Skipping Machine Status component."
-    return 0
-  fi
+  report_status "Installing SPD Machine Info macro..."
+  cp "$macro_source" "${KLIPPER_CONF_DIR}/spd_machine_info.cfg"
+  ok_msg "spd_machine_info.cfg copied to ${KLIPPER_CONF_DIR}"
 
-  report_status "Installing Moonraker Machine Status component..."
-  mkdir -p "$(dirname "$component_dest")"
-  cp "$source_file" "$component_dest"
-  ok_msg "Machine Status component installed to ${component_dest}"
-
-  # Add [machine_status] to moonraker.conf if not already present
-  if [ -f "$moonraker_conf" ]; then
-    if grep -q "\[machine_status\]" "$moonraker_conf"; then
-      ok_msg "[machine_status] already exists in moonraker.conf. Skipping."
+  # Add include to printer.cfg if not already present
+  if [ -f "$printer_cfg" ]; then
+    if grep -q "spd_machine_info.cfg" "$printer_cfg"; then
+      ok_msg "[include spd_machine_info.cfg] already exists in printer.cfg. Skipping."
     else
-      report_status "Adding [machine_status] to moonraker.conf..."
-      printf "\n# SPD Machine Info fetcher (for SPD_MACHINE_INFO macro)\n[machine_status]\n" >> "$moonraker_conf"
-      ok_msg "[machine_status] added to moonraker.conf"
+      report_status "Adding [include spd_machine_info.cfg] to printer.cfg..."
+      printf "\n[include spd_machine_info.cfg]\n" >> "$printer_cfg"
+      ok_msg "[include spd_machine_info.cfg] added to printer.cfg"
     fi
   else
-    warn_msg "moonraker.conf not found at ${moonraker_conf}."
-    warn_msg "After creating moonraker.conf, add the following:"
-    warn_msg "  [machine_status]"
+    warn_msg "printer.cfg not found at ${printer_cfg}."
+    warn_msg "After creating printer.cfg, add the following:"
+    warn_msg "  [include spd_machine_info.cfg]"
   fi
 
-  report_status "NOTE: Moonraker will be restarted automatically at the end of installation."
+  report_status "NOTE: Klipper will be restarted automatically at the end of installation."
 }
 
 
@@ -531,8 +512,8 @@ install_instances(){
   # Add RESTART_SPDK and FIRMWARE_RESTART+ macros to printer.cfg
   add_restart_macro
 
-  # Install Moonraker Machine Status component (fetches plugin API, stores in save_variables)
-  add_moonraker_machine_status_component
+  # Install SPD Machine Info macro (pure Klipper config, no Moonraker component needed)
+  add_machine_info_macro
 
   # Add spdklipper-plugin to moonraker.asvc
   echo ""
@@ -648,14 +629,15 @@ restart_services() {
   echo -e "${green}========================================${default}"
   echo ""
   echo -e "  ${cyan}SPDKlipper Plugin${default}  : ${green}✓${default} Installed"
-  echo -e "  ${cyan}Moonraker${default}           : ${green}✓${default} Restarted (with machine_status component)"
-  echo -e "  ${cyan}Klipper${default}             : ${green}✓${default} Restarted (with SPD_MACHINE_INFO macro)"
+  echo -e "  ${cyan}Moonraker${default}           : ${green}✓${default} Restarted"
+  echo -e "  ${cyan}Klipper${default}             : ${green}✓${default} Restarted (with MACHINE_INFO macro)"
   echo ""
   echo -e "  ${yellow}Next steps:${default}"
   echo -e "  1. Open Fluidd/Mainsail"
-  echo -e "  2. Add ${cyan}SPD_MACHINE_INFO${default} macro button to your dashboard"
-  echo -e "  3. Click the button to display Machine ID, Status, Last Seen"
-  echo -e "  4. Visit ${cyan}http://<your-pi-ip>:1122${default} for the SPDKlipper web UI"
+  echo -e "  2. Add ${cyan}MACHINE_INFO${default} macro button to your dashboard"
+  echo -e "  3. Click the button to display Machine ID, Status, Server"
+  echo -e "  4. Edit variable_machine_id in spd_machine_info.cfg to set your Machine ID"
+  echo -e "  5. Visit ${cyan}http://<your-pi-ip>:1122${default} for the SPDKlipper web UI"
   echo ""
 }
 
