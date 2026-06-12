@@ -348,14 +348,16 @@ if ! grep -q "\[gcode_macro FIRMWARE_RESTART\]" "$printer_cfg"; then
   cat >> "$printer_cfg" << 'EOF'
 
 [gcode_macro FIRMWARE_RESTART]
+rename_existing: BASE_FIRMWARE_RESTART
 description: Firmware restart + SPDKlipper plugin restart
+
 gcode:
-    # Step 1: Restart SPDKlipper plugin service first
-    {action_call_remote_method("restart_service", service_name="spdklipper-plugin")}
-    # Step 2: Wait briefly for the plugin to stop cleanly
+    {action_respond_info("Restarting SPDKlipper plugin...")}
+    BASE_START_SERVICE SERVICE=spdklipper-plugin
+
     G4 P2000
-    # Step 3: Perform the actual firmware restart
-    FIRMWARE_RESTART
+
+    BASE_FIRMWARE_RESTART
 EOF
 
   ok_msg "FIRMWARE_RESTART+ macro added to printer.cfg"
