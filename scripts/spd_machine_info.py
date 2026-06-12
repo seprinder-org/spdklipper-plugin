@@ -73,7 +73,7 @@ class SPDMachineInfo:
         gcmd.respond_info(f"  Machine ID  : {self.machine_id}")
         gcmd.respond_info(f"  Name        : {self.machine_name}")
         gcmd.respond_info(f"  Status      : {icon} {status_label}")
-        gcmd.respond_info(f"  Server      : {server_name}")
+        # gcmd.respond_info(f"  Server      : {server_name}")
         gcmd.respond_info("========================================")
 
     def _handle_ready(self):
