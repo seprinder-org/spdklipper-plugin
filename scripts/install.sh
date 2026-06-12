@@ -373,25 +373,42 @@ report_status "Services will be restarted automatically at the end of installati
 
 
 add_machine_info_macro() {
-  # Install SPD Machine Info macro to printer.cfg.
+  # Install SPD Machine Info module + macro to Klipper.
   #
-  # This copies scripts/spd_machine_info.cfg to the Klipper config
-  # directory and adds [include spd_machine_info.cfg] to printer.cfg.
-  # The macro uses native Klipper variables (no Moonraker component needed).
+  # This installs:
+  #   1. scripts/spd_machine_info.py → ~/klipper/klippy/extras/spd_machine_info.py
+  #      (Klipper extra module that reads spd_status.json from the plugin)
+  #   2. scripts/spd_machine_info.cfg → Klipper config dir + include in printer.cfg
   local printer_cfg="${KLIPPER_CONF_DIR}/printer.cfg"
   local macro_source="${SPDKLIPPER_PLUGIN_DIR}/scripts/spd_machine_info.cfg"
+  local py_source="${SPDKLIPPER_PLUGIN_DIR}/scripts/spd_machine_info.py"
+  local klipper_extras="${HOME}/klipper/klippy/extras"
 
-  # Copy the macro file
+  # --- Step 1: Install Python module to Klipper extras ---
+  if [ -f "$py_source" ]; then
+    if [ -d "$klipper_extras" ]; then
+      report_status "Installing spd_machine_info.py to Klipper extras..."
+      cp "$py_source" "${klipper_extras}/spd_machine_info.py"
+      ok_msg "spd_machine_info.py installed to ${klipper_extras}"
+    else
+      warn_msg "Klipper extras directory not found at ${klipper_extras}."
+      warn_msg "Please manually copy spd_machine_info.py to your Klipper extras dir."
+    fi
+  else
+    warn_msg "Source file ${py_source} not found. Skipping Python module."
+  fi
+
+  # --- Step 2: Copy the macro file ---
   if [ ! -f "$macro_source" ]; then
     warn_msg "Source file ${macro_source} not found. Skipping Machine Info macro."
     return 0
   fi
 
-  report_status "Installing SPD Machine Info macro..."
+  report_status "Installing SPD Machine Info config..."
   cp "$macro_source" "${KLIPPER_CONF_DIR}/spd_machine_info.cfg"
   ok_msg "spd_machine_info.cfg copied to ${KLIPPER_CONF_DIR}"
 
-  # Add include to printer.cfg if not already present
+  # --- Step 3: Add include to printer.cfg ---
   if [ -f "$printer_cfg" ]; then
     if grep -q "spd_machine_info.cfg" "$printer_cfg"; then
       ok_msg "[include spd_machine_info.cfg] already exists in printer.cfg. Skipping."
@@ -630,13 +647,13 @@ restart_services() {
   echo ""
   echo -e "  ${cyan}SPDKlipper Plugin${default}  : ${green}✓${default} Installed"
   echo -e "  ${cyan}Moonraker${default}           : ${green}✓${default} Restarted"
-  echo -e "  ${cyan}Klipper${default}             : ${green}✓${default} Restarted (with MACHINE_INFO macro)"
+  echo -e "  ${cyan}Klipper${default}             : ${green}✓${default} Restarted (with spd_machine_info module)"
   echo ""
   echo -e "  ${yellow}Next steps:${default}"
   echo -e "  1. Open Fluidd/Mainsail"
   echo -e "  2. Add ${cyan}MACHINE_INFO${default} macro button to your dashboard"
   echo -e "  3. Click the button to display Machine ID, Status, Server"
-  echo -e "  4. Edit variable_machine_id in spd_machine_info.cfg to set your Machine ID"
+  echo -e "  4. Machine ID and Status are fetched automatically from the plugin API"
   echo -e "  5. Visit ${cyan}http://<your-pi-ip>:1122${default} for the SPDKlipper web UI"
   echo ""
 }

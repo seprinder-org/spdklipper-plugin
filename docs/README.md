@@ -4,21 +4,28 @@ Hiển thị **Machine ID**, **Status**, **Server Name** trên Fluidd/Mainsail C
 
 ## Kiến trúc
 
-Giải pháp **100% Klipper config** — không cần Moonraker component, không cần Python code trên Klipper.
-
 ```
-[shell_command _FETCH_MACHINE_INFO]  →  curl + python3 → plugin API (/machine/info)
-        ↓
-[gcode_macro MACHINE_INFO]  →  RUN_SHELL_COMMAND → parse pipe-delimited → RESPOND
-        ↓
-[delayed_gcode MACHINE_INFO_STARTUP]  →  tự động chạy 10s sau khi Klipper khởi động
+SPDKlipper Plugin (socket_manager.py)
+  └── viết spd_status.json (machine_id, machine_name, connected, status)
+         │
+         ▼
+spd_machine_info.py (Klipper extra module)
+  └── đọc spd_status.json mỗi 5 giây
+         │
+         ├── printer["spd_machine_info"].machine_id
+         ├── printer["spd_machine_info"].status
+         ├── printer["spd_machine_info"].connected
+         │
+         ▼
+[gcode_macro MACHINE_INFO] → RESPOND → Fluidd Console
+[delayed_gcode MACHINE_INFO_STARTUP] → tự động chạy 10s sau Klipper start
 ```
 
 **Luồng dữ liệu:**
-1. `[shell_command _FETCH_MACHINE_INFO]` chạy `curl` gọi API `http://127.0.0.1:1122/machine/info`
-2. `python3` parse JSON, xuất ra pipe-delimited: `machine_id|machine_name|connected|status`
-3. `MACHINE_INFO` macro parse kết quả bằng `raw.split("|")` trong Jinja2
-4. Hiển thị lên Console Fluidd qua `RESPOND`
+1. Plugin (`socket_manager.py`) ghi file `spd_status.json` mỗi khi trạng thái kết nối thay đổi
+2. Klipper extra module (`spd_machine_info.py`) đọc file này mỗi 5 giây
+3. Dữ liệu có sẵn trong macro qua `printer["spd_machine_info"].machine_id`
+4. `MACHINE_INFO` macro hiển thị lên Console Fluidd qua `RESPOND`
 
 ## Cài đặt
 
@@ -30,6 +37,7 @@ cd ~/spdklipper-plugin
 ```
 
 Script sẽ tự động:
+- Copy `spd_machine_info.py` vào `~/klipper/klippy/extras/`
 - Copy `spd_machine_info.cfg` vào thư mục config
 - Thêm `[include spd_machine_info.cfg]` vào `printer.cfg`
 - Restart Klipper
@@ -37,13 +45,16 @@ Script sẽ tự động:
 ### Cách 2: Thủ công
 
 ```bash
-# 1. Copy macro file
+# 1. Copy Klipper extra module
+cp ~/spdklipper-plugin/scripts/spd_machine_info.py ~/klipper/klippy/extras/spd_machine_info.py
+
+# 2. Copy macro config
 cp ~/spdklipper-plugin/scripts/spd_machine_info.cfg ~/printer_data/config/spd_machine_info.cfg
 
-# 2. Thêm vào printer.cfg
+# 3. Thêm vào printer.cfg
 echo -e "\n[include spd_machine_info.cfg]" >> ~/printer_data/config/printer.cfg
 
-# 3. Restart Klipper
+# 4. Restart Klipper
 sudo systemctl restart klipper
 ```
 
@@ -59,18 +70,20 @@ sudo systemctl restart klipper
 | **Macro Button** | Settings → Macros → Add `MACHINE_INFO` → kéo ra dashboard → click để xem |
 | **Console** | Gõ `MACHINE_INFO` để xem |
 
-### Machine ID tự động
+### Dữ liệu tự động
 
-Machine ID được lấy **tự động** từ SPDKlipper plugin API (`/machine/info`), không cần cấu hình thủ công.
+- **Machine ID**: Lấy từ plugin API (`/machine/info`), hiển thị số nhận dạng máy
+- **Status**: `● CONNECTED` hoặc `○ DISCONNECTED` dựa trên trạng thái kết nối socket
+- **Server**: Hostname của Raspberry Pi
 
-Nếu bạn muốn ghi đè Machine ID hiển thị, sửa trong file `~/printer_data/config/spd_machine_info.cfg` tại dòng `[shell_command _FETCH_MACHINE_INFO]` — thay đổi URL hoặc tham số nếu cần.
+Tất cả dữ liệu được cập nhật tự động mỗi 5 giây.
 
 ---
 
 ## Yêu cầu
 
-- SPDKlipper plugin đang chạy (cung cấp API `/machine/info` trên port 1122)
-- `curl` và `python3` đã được cài đặt trên Raspberry Pi
+- SPDKlipper plugin đang chạy (có file `spd_status.json` trong thư mục config)
+- Klipper đã cài đặt (có thư mục `~/klipper/klippy/extras/`)
 - File `spd_machine_info.cfg` được include trong `printer.cfg`
 
 ---
@@ -79,5 +92,7 @@ Nếu bạn muốn ghi đè Machine ID hiển thị, sửa trong file `~/printer
 
 | File | Vai trò |
 |------|---------|
-| [`scripts/spd_machine_info.cfg`](../scripts/spd_machine_info.cfg) | Klipper macro (shell_command + MACHINE_INFO + delayed_gcode) |
+| [`scripts/spd_machine_info.py`](../scripts/spd_machine_info.py) | Klipper extra module (đọc spd_status.json, expose printer objects) |
+| [`scripts/spd_machine_info.cfg`](../scripts/spd_machine_info.cfg) | Klipper config ([spd_machine_info] + MACHINE_INFO macro) |
+| [`libs/socket_manager.py`](../libs/socket_manager.py) | Plugin socket manager (ghi spd_status.json) |
 | [`plugin/main.py`](../plugin/main.py) | FastAPI server + `/machine/info` endpoint |
