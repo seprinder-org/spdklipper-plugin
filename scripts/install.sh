@@ -332,7 +332,8 @@ if ! grep -q "\[gcode_macro RESTART_SPDK\]" "$printer_cfg"; then
 [gcode_macro RESTART_SPDK]
 description: Restart SPDKlipper plugin service
 gcode:
-    {action_call_remote_method("restart_service", service_name="spdklipper-plugin")}
+    {action_respond_info("Restarting SPDKlipper plugin...")}
+    BASE_START_SERVICE SERVICE=spdklipper-plugin
 EOF
 
   ok_msg "RESTART_SPDK macro added to printer.cfg"
