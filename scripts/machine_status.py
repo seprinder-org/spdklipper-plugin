@@ -67,7 +67,9 @@ class MachineStatus:
         )
 
         # Register event handlers
+        # Use both server_startup and klippy_ready to ensure the timer starts
         self.server.register_event_handler("server_startup", self._handle_startup)
+        self.server.register_event_handler("klippy_ready", self._handle_klippy_ready)
         self.server.register_event_handler("server_shutdown", self._handle_shutdown)
 
         logger.info(
@@ -77,9 +79,13 @@ class MachineStatus:
 
     async def _handle_startup(self) -> None:
         """Start the periodic timer when Moonraker starts."""
-        # Do an immediate fetch on startup
-        await self._fetch_and_store()
-        # Then register the periodic timer
+        logger.info("Server startup event received, starting machine status timer")
+        # Register the periodic timer
+        self.server.register_timer(self._check_status, self.refresh_interval)
+
+    async def _handle_klippy_ready(self) -> None:
+        """Start the periodic timer when Klipper is ready."""
+        logger.info("Klippy ready event received, starting machine status timer")
         self.server.register_timer(self._check_status, self.refresh_interval)
 
     async def _handle_shutdown(self) -> None:
@@ -88,6 +94,7 @@ class MachineStatus:
 
     async def _check_status(self, eventtime: float) -> float:
         """Periodically fetch machine info from the plugin API."""
+        logger.info("Timer fired, fetching machine info...")
         await self._fetch_and_store()
         return self.refresh_interval
 
@@ -97,7 +104,7 @@ class MachineStatus:
             import aiohttp
 
             url = f"{self.plugin_url}/machine/info"
-            logger.debug("Fetching machine info from %s", url)
+            logger.info("Fetching machine info from %s", url)
 
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, timeout=5) as resp:
@@ -111,7 +118,11 @@ class MachineStatus:
                             "last_seen": data.get("last_seen", ""),
                             "timestamp": data.get("timestamp", "")
                         }
-                        logger.debug("Machine info fetched successfully: %s", self.cached_info)
+                        logger.info(
+                            "Machine info fetched: id=%s connected=%s",
+                            self.cached_info["machine_id"],
+                            self.cached_info["connected"]
+                        )
                     else:
                         logger.warning("Plugin API returned status %d", resp.status)
                         self._set_disconnected()
@@ -195,7 +206,11 @@ class MachineStatus:
                 gcode = f"SAVE_VARIABLE VARIABLE={var_name} VALUE='{var_value}'"
                 await klipper_api.run_gcode(gcode)
 
-            logger.debug("save_variables updated with machine info: %s", variables)
+            logger.info(
+                "save_variables updated: id=%s connected=%s",
+                variables["spd_machine_id"],
+                variables["spd_connected"]
+            )
         except Exception as e:
             logger.error("Failed to update save_variables: %s", e)
 
