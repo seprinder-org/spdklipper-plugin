@@ -166,28 +166,36 @@ class MachineStatus:
         Store machine info into Klipper's save_variables so the
         SPD_MACHINE_INFO macro can read it via printer.save_variables.variables.
 
-        Uses SAVE_VARIABLE G-code command sent via Moonraker's internal API.
+        Each field is stored as a separate variable (not a JSON blob) because
+        Klipper's Jinja2 does not have a from_json filter.
+
+        Uses SAVE_VARIABLE G-code commands sent via Moonraker's internal API.
         """
         try:
             klipper_api = self.server.lookup_component("klippy_apis")
 
-            # Build a compact JSON string for the variable
-            var_value = json.dumps({
-                "machine_id": info.get("machine_id", ""),
-                "machine_name": info.get("machine_name", ""),
-                "status": info.get("status", "disconnected"),
-                "connected": info.get("connected", False),
-                "last_seen": info.get("last_seen", ""),
-                "last_seen_display": self._format_timestamp(info.get("last_seen", ""))
-            })
+            # Build last_seen_display
+            last_seen_display = self._format_timestamp(info.get("last_seen", ""))
 
             # Escape single quotes for G-code safety
-            var_value_escaped = var_value.replace("'", "'\"'\"'")
+            def esc(val):
+                return str(val).replace("'", "'\"'\"'")
 
-            gcode = f"SAVE_VARIABLE VARIABLE=spd_machine_info VALUE='{var_value_escaped}'"
-            await klipper_api.run_gcode(gcode)
+            # Store each field as a separate variable (Klipper Jinja2 has no from_json filter)
+            variables = {
+                "spd_machine_id": esc(info.get("machine_id", "")),
+                "spd_machine_name": esc(info.get("machine_name", "")),
+                "spd_status": esc(info.get("status", "disconnected")),
+                "spd_connected": "1" if info.get("connected", False) else "0",
+                "spd_last_seen": esc(info.get("last_seen", "")),
+                "spd_last_seen_display": esc(last_seen_display),
+            }
 
-            logger.debug("save_variables updated with machine info")
+            for var_name, var_value in variables.items():
+                gcode = f"SAVE_VARIABLE VARIABLE={var_name} VALUE='{var_value}'"
+                await klipper_api.run_gcode(gcode)
+
+            logger.debug("save_variables updated with machine info: %s", variables)
         except Exception as e:
             logger.error("Failed to update save_variables: %s", e)
 
