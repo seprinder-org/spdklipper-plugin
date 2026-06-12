@@ -32,8 +32,7 @@ cp ~/spdklipper-plugin/scripts/spd_machine_info.cfg ~/printer_data/config/spd_ma
 # 3. Thêm vào moonraker.conf
 echo -e "\n[spd_status]\n[http_client]" >> ~/printer_data/config/moonraker.conf
 
-# 4. Thêm vào printer.cfg (bao gồm [save_variables] nếu chưa có)
-echo -e "\n[save_variables]\nfilename: ~/printer_data/config/saved_variables.cfg" >> ~/printer_data/config/printer.cfg
+# 4. Thêm vào printer.cfg
 echo -e "\n[include spd_machine_info.cfg]" >> ~/printer_data/config/printer.cfg
 
 # 5. Restart
@@ -86,7 +85,6 @@ sed -i '/\[http_client\]/d' ~/printer_data/config/moonraker.conf
 
 # 4. Xóa khỏi printer.cfg
 sed -i '/spd_machine_info.cfg/d' ~/printer_data/config/printer.cfg
-sed -i '/save_variables/d' ~/printer_data/config/printer.cfg
 
 # 5. Restart
 sudo systemctl restart moonraker
