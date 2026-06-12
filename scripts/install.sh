@@ -304,7 +304,16 @@ if [ ! -f "$printer_cfg" ]; then
   return 0
 fi
 
-# --- Step 2a: Include spd_machine_info.cfg ---
+# --- Step 2a: Add [display_status] if missing (required for M117 status bar on Fluidd) ---
+if ! grep -q "\[display_status\]" "$printer_cfg"; then
+  report_status "Adding [display_status] to printer.cfg (required for Fluidd status bar)..."
+  printf "\n[display_status]\n" >> "$printer_cfg"
+  ok_msg "[display_status] added to printer.cfg"
+else
+  ok_msg "[display_status] already exists in printer.cfg. Skipping."
+fi
+
+# --- Step 2b: Include spd_machine_info.cfg ---
 if ! grep -q "spd_machine_info.cfg" "$printer_cfg"; then
   report_status "Adding [include spd_machine_info.cfg] to printer.cfg..."
   printf "\n[include spd_machine_info.cfg]\n" >> "$printer_cfg"
@@ -323,7 +332,7 @@ else
   warn_msg "spd_machine_info.cfg not found at ${macro_source}. Skipping."
 fi
 
-# --- Step 2b: Add RESTART_SPDK macro (standalone) ---
+# --- Step 2c: Add RESTART_SPDK macro (standalone) ---
 if ! grep -q "\[gcode_macro RESTART_SPDK\]" "$printer_cfg"; then
   report_status "Adding RESTART_SPDK macro to printer.cfg..."
 
@@ -340,7 +349,7 @@ else
   ok_msg "RESTART_SPDK macro already exists in printer.cfg. Skipping."
 fi
 
-# --- Step 2c: Override FIRMWARE_RESTART to also restart SPDKlipper ---
+# --- Step 2d: Override FIRMWARE_RESTART to also restart SPDKlipper ---
 if ! grep -q "\[gcode_macro FIRMWARE_RESTART\]" "$printer_cfg"; then
   report_status "Adding FIRMWARE_RESTART+ macro to printer.cfg (restarts firmware + SPDKlipper)..."
 

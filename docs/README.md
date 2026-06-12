@@ -17,7 +17,7 @@ Script sẽ tự động:
 - Copy Moonraker component (`spd_status.py`)
 - Copy Klipper macros (`spd_machine_info.cfg`)
 - Thêm `[spd_status]` vào `moonraker.conf`
-- Thêm `[include spd_machine_info.cfg]` vào `printer.cfg`
+- Thêm `[display_status]` và `[include spd_machine_info.cfg]` vào `printer.cfg`
 - Restart Moonraker + Klipper
 
 ### Cách 2: Thủ công (nếu đã có plugin)
@@ -32,7 +32,8 @@ cp ~/spdklipper-plugin/scripts/spd_machine_info.cfg ~/printer_data/config/spd_ma
 # 3. Thêm vào moonraker.conf
 echo -e "\n[spd_status]" >> ~/printer_data/config/moonraker.conf
 
-# 4. Thêm vào printer.cfg
+# 4. Thêm vào printer.cfg (cần [display_status] để M117 hiển thị trên Fluidd)
+echo -e "\n[display_status]" >> ~/printer_data/config/printer.cfg
 echo -e "\n[include spd_machine_info.cfg]" >> ~/printer_data/config/printer.cfg
 
 # 5. Restart
@@ -83,6 +84,7 @@ rm ~/printer_data/config/spd_machine_info.cfg
 sed -i '/\[spd_status\]/d' ~/printer_data/config/moonraker.conf
 
 # 4. Xóa khỏi printer.cfg
+sed -i '/display_status/d' ~/printer_data/config/printer.cfg
 sed -i '/spd_machine_info.cfg/d' ~/printer_data/config/printer.cfg
 
 # 5. Restart
