@@ -16,7 +16,7 @@ cd ~/spdklipper-plugin
 Script sẽ tự động:
 - Copy Moonraker component (`spd_status.py`)
 - Copy Klipper macros (`spd_machine_info.cfg`)
-- Thêm `[spd_status]`, `[http_client]` vào `moonraker.conf`
+- Thêm `[spd_status]` vào `moonraker.conf`
 - Thêm `[include spd_machine_info.cfg]` vào `printer.cfg`
 - Restart Moonraker + Klipper
 
@@ -30,7 +30,7 @@ cp ~/spdklipper-plugin/scripts/moonraker_spd_status.py ~/moonraker/moonraker/com
 cp ~/spdklipper-plugin/scripts/spd_machine_info.cfg ~/printer_data/config/spd_machine_info.cfg
 
 # 3. Thêm vào moonraker.conf
-echo -e "\n[spd_status]\n[http_client]" >> ~/printer_data/config/moonraker.conf
+echo -e "\n[spd_status]" >> ~/printer_data/config/moonraker.conf
 
 # 4. Thêm vào printer.cfg
 echo -e "\n[include spd_machine_info.cfg]" >> ~/printer_data/config/printer.cfg
@@ -81,7 +81,6 @@ rm ~/printer_data/config/spd_machine_info.cfg
 
 # 3. Xóa khỏi moonraker.conf (dùng nano hoặc sed)
 sed -i '/\[spd_status\]/d' ~/printer_data/config/moonraker.conf
-sed -i '/\[http_client\]/d' ~/printer_data/config/moonraker.conf
 
 # 4. Xóa khỏi printer.cfg
 sed -i '/spd_machine_info.cfg/d' ~/printer_data/config/printer.cfg

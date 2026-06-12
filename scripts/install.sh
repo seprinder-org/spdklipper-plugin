@@ -415,18 +415,6 @@ add_moonraker_spd_status_component() {
     warn_msg "  [spd_status]"
   fi
 
-  # Add [http_client] to moonraker.conf if not already present
-  # Required by spd_machine_info.cfg macros to call SPDKlipper plugin API
-  if [ -f "$moonraker_conf" ]; then
-    if grep -q "\[http_client\]" "$moonraker_conf"; then
-      ok_msg "[http_client] already exists in moonraker.conf. Skipping."
-    else
-      report_status "Adding [http_client] to moonraker.conf (required for SPD Machine Info macros)..."
-      printf "\n# HTTP client for SPD Machine Info macros\n[http_client]\n" >> "$moonraker_conf"
-      ok_msg "[http_client] added to moonraker.conf"
-    fi
-  fi
-
   report_status "NOTE: Moonraker will be restarted automatically at the end of installation."
 }
 
