@@ -82,35 +82,6 @@ def read_credentials(config_path: Optional[Path] = None) -> Dict[str, str]:
     return result
 
 
-def read_server_config(config_path: Optional[Path] = None) -> Dict[str, str]:
-    """
-    Read [server] section from spdklipper.conf.
-
-    Returns a dict with keys: host_server, host_connect
-    Both default to empty string if not found (meaning use hardcoded defaults).
-    """
-    result = {
-        'host_server': '',
-        'host_connect': '',
-    }
-
-    if config_path is None or not config_path.exists():
-        return result
-
-    try:
-        config = configparser.ConfigParser()
-        config.read(str(config_path))
-
-        if config.has_section('server'):
-            result['host_server'] = config.get('server', 'host_server', fallback='').strip()
-            result['host_connect'] = config.get('server', 'host_connect', fallback='').strip()
-
-    except Exception as e:
-        print(f"[ConfigReader] Error reading server config from {config_path}: {e}")
-
-    return result
-
-
 def has_valid_credentials(creds: Dict[str, str]) -> bool:
     """Check if both username and password are non-empty."""
     return bool(creds['username'] and creds['password'])

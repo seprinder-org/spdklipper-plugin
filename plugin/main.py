@@ -27,7 +27,7 @@ from libs import socket_manager as soc
 from utils import util as soc_util
 from fastapi.responses import JSONResponse
 from fastapi import WebSocket, WebSocketDisconnect
-from constants import AGENT_DOMAIN as agentDomain, AGENT_DEVICE as agentDevice, PORT as port, override_from_config
+from constants import AGENT_DOMAIN as agentDomain, AGENT_DEVICE as agentDevice, PORT as port
 
 import datetime
 
@@ -46,8 +46,6 @@ if _config_path:
 else:
     print("[Config] No config file found. Web login will be used if needed.")
 
-# Override HOST_SERVER / HOST_CONNECT from config file [server] section
-override_from_config(_config_path)
 # --- End CLI args ---
 
 # Function to check if a port is in use
@@ -557,6 +555,77 @@ def readAllSecret(
 ):
     secrets = session.exec(select(Secret).offset(offset).limit(limit)).all()
     return secrets
+
+
+# ============================================================
+# Machine Info API endpoint
+# ============================================================
+@app.get("/machine/info")
+async def get_machine_info(request: Request):
+    """
+    Returns Machine Info as JSON for external consumers (e.g., Moonraker,
+    Fluidd/Mainsail dashboard widgets, or custom scripts).
+
+    Response format:
+    {
+        "machine_id": "PRN-01",
+        "machine_name": "My Printer",
+        "status": "connected",
+        "connected": true,
+        "last_seen": "2026-06-12T09:30:15",
+        "timestamp": "2026-06-12T09:30:15"
+    }
+    """
+    from src.database.sqlite3 import SocketStatus, engine
+    from sqlmodel import select, Session
+
+    # Default response when not logged in
+    result = {
+        "machine_id": "",
+        "machine_name": "",
+        "status": "disconnected",
+        "connected": False,
+        "last_seen": "",
+        "timestamp": ""
+    }
+
+    # Check if user is logged in
+    tempProfileUser = await hdl.getSecret('profile_user', 'session')
+    if not tempProfileUser:
+        return result
+
+    profileUser = json.loads(tempProfileUser)
+
+    tempProfileMachine = await hdl.getSecret('profile_machine', 'session')
+    if not tempProfileMachine:
+        return result
+
+    profileMachine = json.loads(tempProfileMachine)
+
+    # Get socket connection status from DB
+    socket_status_entry = None
+    try:
+        with Session(engine) as session:
+            socket_status_entry = session.exec(
+                select(SocketStatus).limit(1)
+            ).first()
+    except Exception:
+        pass
+
+    is_connected = socket_status_entry.is_connected if socket_status_entry else False
+    last_seen = socket_status_entry.timestamp.isoformat() if socket_status_entry and socket_status_entry.timestamp else ""
+
+    result = {
+        "machine_id": profileMachine.get('o_identify_number', ''),
+        "machine_name": profileMachine.get('v_name', ''),
+        "status": "connected" if is_connected else "disconnected",
+        "connected": is_connected,
+        "last_seen": last_seen,
+        "timestamp": datetime.datetime.now().isoformat()
+    }
+
+    return result
+
 
 if __name__ == '__main__':
     uvicorn.run(app, host="0.0.0.0", port=port, reload=False, workers=1)

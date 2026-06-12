@@ -304,7 +304,26 @@ if [ ! -f "$printer_cfg" ]; then
   return 0
 fi
 
-# --- Step 2a: Add RESTART_SPDK macro (standalone) ---
+# --- Step 2a: Include spd_machine_info.cfg ---
+if ! grep -q "spd_machine_info.cfg" "$printer_cfg"; then
+  report_status "Adding [include spd_machine_info.cfg] to printer.cfg..."
+  printf "\n[include spd_machine_info.cfg]\n" >> "$printer_cfg"
+  ok_msg "[include spd_machine_info.cfg] added to printer.cfg"
+else
+  ok_msg "[include spd_machine_info.cfg] already exists in printer.cfg. Skipping."
+fi
+
+# Copy spd_machine_info.cfg to Klipper config directory
+local macro_source="${SPDKLIPPER_PLUGIN_DIR}/scripts/spd_machine_info.cfg"
+if [ -f "$macro_source" ]; then
+  report_status "Copying spd_machine_info.cfg to ${KLIPPER_CONF_DIR}..."
+  cp "$macro_source" "${KLIPPER_CONF_DIR}/spd_machine_info.cfg"
+  ok_msg "spd_machine_info.cfg copied to ${KLIPPER_CONF_DIR}"
+else
+  warn_msg "spd_machine_info.cfg not found at ${macro_source}. Skipping."
+fi
+
+# --- Step 2b: Add RESTART_SPDK macro (standalone) ---
 if ! grep -q "\[gcode_macro RESTART_SPDK\]" "$printer_cfg"; then
   report_status "Adding RESTART_SPDK macro to printer.cfg..."
 
@@ -321,7 +340,7 @@ else
   ok_msg "RESTART_SPDK macro already exists in printer.cfg. Skipping."
 fi
 
-# --- Step 2b: Override FIRMWARE_RESTART to also restart SPDKlipper ---
+# --- Step 2c: Override FIRMWARE_RESTART to also restart SPDKlipper ---
 if ! grep -q "\[gcode_macro FIRMWARE_RESTART\]" "$printer_cfg"; then
   report_status "Adding FIRMWARE_RESTART+ macro to printer.cfg (restarts firmware + SPDKlipper)..."
 
@@ -345,13 +364,11 @@ fi
 
 report_status ""
 report_status "SPDKlipper macros installed:"
-report_status "  - RESTART_SPDK       : Restart SPDKlipper only (run from console)"
-report_status "  - FIRMWARE_RESTART   : Restarts firmware + SPDKlipper (Fluidd/Mainsail button)"
+report_status "  - spd_machine_info.cfg : Machine Info display macros (included)"
+report_status "  - RESTART_SPDK         : Restart SPDKlipper only (run from console)"
+report_status "  - FIRMWARE_RESTART     : Restarts firmware + SPDKlipper (Fluidd/Mainsail button)"
 report_status ""
-report_status "IMPORTANT: After install, run these commands on your Raspberry Pi:"
-report_status "  1. sudo systemctl restart moonraker"
-report_status "  2. sudo systemctl restart klipper"
-report_status "Then use RESTART_SPDK from Fluidd/Mainsail console."
+report_status "Services will be restarted automatically at the end of installation."
 }
 
 
@@ -391,14 +408,26 @@ add_moonraker_spd_status_component() {
       report_status "Adding [spd_status] to moonraker.conf..."
       printf "\n# SPD Klipper connection status display\n[spd_status]\n" >> "$moonraker_conf"
       ok_msg "[spd_status] added to moonraker.conf"
-      report_status "NOTE: Restart Moonraker to load the component:"
-      report_status "  sudo systemctl restart moonraker"
     fi
   else
     warn_msg "moonraker.conf not found at ${moonraker_conf}."
     warn_msg "After creating moonraker.conf, add the following:"
     warn_msg "  [spd_status]"
   fi
+
+  # Add [http_client] to moonraker.conf if not already present
+  # Required by spd_machine_info.cfg macros to call SPDKlipper plugin API
+  if [ -f "$moonraker_conf" ]; then
+    if grep -q "\[http_client\]" "$moonraker_conf"; then
+      ok_msg "[http_client] already exists in moonraker.conf. Skipping."
+    else
+      report_status "Adding [http_client] to moonraker.conf (required for SPD Machine Info macros)..."
+      printf "\n# HTTP client for SPD Machine Info macros\n[http_client]\n" >> "$moonraker_conf"
+      ok_msg "[http_client] added to moonraker.conf"
+    fi
+  fi
+
+  report_status "NOTE: Moonraker will be restarted automatically at the end of installation."
 }
 
 
@@ -527,7 +556,111 @@ install_instances(){
   # Secure sensitive files after installation
   secure_sensitive_files
 
+  # Restart Moonraker and Klipper services to apply all changes
+  restart_services
+
 }
+
+restart_services() {
+  # Restart Moonraker and Klipper services with a progress/waiting UI.
+  # This ensures all new components, macros, and config changes are loaded.
+  local moonraker_service="moonraker"
+  local klipper_service="klipper"
+
+  echo ""
+  echo -e "${yellow}========================================${default}"
+  echo -e "${yellow}  Restarting Services...${default}"
+  echo -e "${yellow}========================================${default}"
+  echo ""
+
+  # --- Restart Moonraker ---
+  echo -e "${cyan}[1/2] Restarting Moonraker...${default}"
+  sudo systemctl restart "$moonraker_service" 2>/dev/null || true
+
+  # Wait for Moonraker to become active with a spinner
+  echo -n "  Waiting for Moonraker to become ready "
+  local moonraker_ready=false
+  local moonraker_timeout=60
+  local moonraker_elapsed=0
+  while [ $moonraker_elapsed -lt $moonraker_timeout ]; do
+    if systemctl is-active --quiet "$moonraker_service" 2>/dev/null; then
+      moonraker_ready=true
+      break
+    fi
+    # Spinner animation
+    case $((moonraker_elapsed % 4)) in
+      0) echo -ne "${green}⠋${default}" ;;
+      1) echo -ne "${green}⠙${default}" ;;
+      2) echo -ne "${green}⠹${default}" ;;
+      3) echo -ne "${green}⠸${default}" ;;
+    esac
+    sleep 1
+    moonraker_elapsed=$((moonraker_elapsed + 1))
+    # Backspace the spinner character
+    echo -ne "\b"
+  done
+
+  if [ "$moonraker_ready" = true ]; then
+    echo -e "${green} ✓${default}"
+    ok_msg "Moonraker restarted successfully (${moonraker_elapsed}s)"
+  else
+    echo -e "${red} ✗${default}"
+    warn_msg "Moonraker restart timed out after ${moonraker_timeout}s."
+    warn_msg "Check manually: sudo systemctl status $moonraker_service"
+  fi
+
+  # --- Restart Klipper ---
+  echo -e "${cyan}[2/2] Restarting Klipper...${default}"
+  sudo systemctl restart "$klipper_service" 2>/dev/null || true
+
+  # Wait for Klipper to become active with a spinner
+  echo -n "  Waiting for Klipper to become ready "
+  local klipper_ready=false
+  local klipper_timeout=60
+  local klipper_elapsed=0
+  while [ $klipper_elapsed -lt $klipper_timeout ]; do
+    if systemctl is-active --quiet "$klipper_service" 2>/dev/null; then
+      klipper_ready=true
+      break
+    fi
+    # Spinner animation
+    case $((klipper_elapsed % 4)) in
+      0) echo -ne "${green}⠋${default}" ;;
+      1) echo -ne "${green}⠙${default}" ;;
+      2) echo -ne "${green}⠹${default}" ;;
+      3) echo -ne "${green}⠸${default}" ;;
+    esac
+    sleep 1
+    klipper_elapsed=$((klipper_elapsed + 1))
+    echo -ne "\b"
+  done
+
+  if [ "$klipper_ready" = true ]; then
+    echo -e "${green} ✓${default}"
+    ok_msg "Klipper restarted successfully (${klipper_elapsed}s)"
+  else
+    echo -e "${red} ✗${default}"
+    warn_msg "Klipper restart timed out after ${klipper_timeout}s."
+    warn_msg "Check manually: sudo systemctl status $klipper_service"
+  fi
+
+  echo ""
+  echo -e "${green}========================================${default}"
+  echo -e "${green}  All services restarted successfully!${default}"
+  echo -e "${green}========================================${default}"
+  echo ""
+  echo -e "  ${cyan}SPDKlipper Plugin${default}  : ${green}✓${default} Installed"
+  echo -e "  ${cyan}Moonraker${default}           : ${green}✓${default} Restarted (with spd_status component)"
+  echo -e "  ${cyan}Klipper${default}             : ${green}✓${default} Restarted (with Machine Info macros)"
+  echo ""
+  echo -e "  ${yellow}Next steps:${default}"
+  echo -e "  1. Open Fluidd/Mainsail"
+  echo -e "  2. Check the status bar for Machine Info (M117 messages)"
+  echo -e "  3. Run ${cyan}DISPLAY_SPD_INFO${default} from the console to test"
+  echo -e "  4. Visit ${cyan}http://<your-pi-ip>:1122${default} for the SPDKlipper web UI"
+  echo ""
+}
+
 
 setup_dialog(){
     ### count amount of moonraker services
