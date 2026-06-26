@@ -275,17 +275,65 @@ class scClient(socketio.AsyncClientNamespace):
                         pass
 
     async def _run_doJob_background(self, printer, filename, targetJob, targetJobId, session):
-        """Chạy doJob trong background task để không block socket event loop."""
+        """Chạy doJob trong background task để không block socket event loop.
+        
+        Now sends real-time progress updates (elapsed time, filament used) to the server
+        by passing a progress_callback to printer.doJob().
+        """
+        # Track the last notified print_duration to avoid duplicate final updates
+        last_notified_duration = 0
+        
+        async def progress_callback(progress: dict):
+            """Callback được gọi từ printer.doJob() mỗi khi có cập nhật tiến trình."""
+            nonlocal last_notified_duration
+            print_duration = progress.get('print_duration', 0)
+            filament_used = progress.get('filament_used', 0)
+            state = progress.get('state', '')
+            
+            # Only notify if print_duration has changed (avoid duplicate updates)
+            if print_duration != last_notified_duration or state in ('complete', 'error', 'cancelled'):
+                last_notified_duration = print_duration
+                
+                if targetJob:
+                    # Map Klipper state to job status
+                    if state == 'complete':
+                        status = 'Completed'
+                    elif state == 'error':
+                        status = 'Failed'
+                    elif state == 'cancelled':
+                        status = 'Cancelled'
+                    else:
+                        status = 'Printing'  # Still printing
+                    
+                    # Send progress update to server
+                    await cJob.notify(
+                        targetJob['v_id'],
+                        status,
+                        targetPrintDuration=print_duration,
+                        targetFilamentUsed=filament_used
+                    )
+                    print(f'[Progress] Job {targetJob["v_id"]}: state={state}, duration={print_duration}s, filament={filament_used}mm')
+
         try:
-            rslt = await printer.doJob(filename, job_id=targetJobId)
+            rslt = await printer.doJob(
+                filename,
+                job_id=targetJobId,
+                progress_callback=progress_callback
+            )
 
             await asyncio.sleep(5)
             if rslt:
                 if targetJob:
+                    # Final notification - job is completed
                     await cJob.notify(targetJob['v_id'], 'Completed')
                 await asyncio.sleep(5)
                 await printer.removeFile(filename)
                 print('File is removed.')
+            else:
+                # Job failed or was cancelled
+                if targetJob:
+                    await cJob.notify(targetJob['v_id'], 'Failed')
+                print(f'Job {targetJobId} finished with failure.')
         finally:
             if session:
                 await session.close()
