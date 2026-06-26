@@ -58,11 +58,11 @@ class SPDMachineInfo:
 
     def cmd_SPD_MACHINE_INFO(self, gcmd):
         """Display machine info via RESPOND."""
-        server_name = "N/A"
-        try:
-            server_name = self.printer.lookup_object("system_stats").sysname
-        except Exception:
-            pass
+        # server_name = "N/A"
+        # try:
+        #     server_name = self.printer.lookup_object("system_stats").sysname
+        # except Exception:
+        #     pass
 
         icon = "●" if self.connected else "○"
         status_label = "CONNECTED" if self.connected else "DISCONNECTED"
