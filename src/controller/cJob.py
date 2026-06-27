@@ -29,7 +29,7 @@ async def readCondition(*args):
     rslt = await hdl.asyncRequestWithAccess(url, jsData)
     return rslt
 
-async def notify(targetId, targetStatus, targetEstimatedPrintingTime=None, targetFilamentUsed=None, targetPrintDuration=None):
+async def notify(targetId, targetStatus, targetEstimatedPrintingTime=None, targetFilamentUsed=None, targetPrintDuration=None, targetProgress=None, targetCurrentLayer=None, targetTotalLayer=None, targetSpeed=None, targetFlow=None, targetFilename=None):
     jsData = {
         'target': 'job',
         'action': 'notify',
@@ -43,6 +43,19 @@ async def notify(targetId, targetStatus, targetEstimatedPrintingTime=None, targe
         jsData['targetFilamentUsed'] = int(math.ceil(float(targetFilamentUsed)))
     if targetPrintDuration is not None:
         jsData['targetPrintDuration'] = int(math.ceil(float(targetPrintDuration)))
+    if targetProgress is not None:
+        # Send progress as float (0.0 to 1.0) - no rounding, keep precision
+        jsData['targetProgress'] = float(targetProgress)
+    if targetCurrentLayer is not None:
+        jsData['targetCurrentLayer'] = int(targetCurrentLayer)
+    if targetTotalLayer is not None:
+        jsData['targetTotalLayer'] = int(targetTotalLayer)
+    if targetSpeed is not None:
+        jsData['targetSpeed'] = float(targetSpeed)
+    if targetFlow is not None:
+        jsData['targetFlow'] = float(targetFlow)
+    if targetFilename is not None:
+        jsData['targetFilename'] = str(targetFilename)
 
     print(f"[cJob.notify] Sending to server: {jsData}")
     url = f'{hostServer}/backend'

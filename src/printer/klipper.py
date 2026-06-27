@@ -78,6 +78,31 @@ class KlipperPrinter(BasePrinter):
                 val = await res.json()
         return val
 
+    async def getPrintProgress(self):
+        """
+        Query Klipper's virtual_sdcard for progress data (0.0 to 1.0).
+        Returns dict with 'progress' key, or empty dict on failure.
+        """
+        val = {}
+        url = f'{self.address_control}/printer/objects/query?virtual_sdcard'
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as res:
+                val = await res.json()
+        return val
+
+    async def getPrintStatsDetail(self):
+        """
+        Query detailed print stats including layer info, speed, flow, filament.
+        Queries multiple Klipper objects in a single request.
+        Returns dict with print_stats, gcode_move, and toolhead data.
+        """
+        val = {}
+        url = f'{self.address_control}/printer/objects/query?print_stats&gcode_move&toolhead&display_status'
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as res:
+                val = await res.json()
+        return val
+
     async def isReadyState(self):
         """
         Kiểm tra máy in đã sẵn sàng nhận lệnh in mới chưa.

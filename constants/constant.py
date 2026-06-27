@@ -10,5 +10,9 @@ PATH_DB = str(BASE_PATH / 'db.sqlite3')
 SPD_SECRET_KEY = '' # Optional: master key
 
 # Production SPD servers
-HOST_CONNECT = 'wss://connect.seprinder.com'
-HOST_SERVER = 'https://seprinder.com'
+# HOST_CONNECT = 'wss://connect.seprinder.com'
+# HOST_SERVER = 'https://seprinder.com'
+
+# local
+HOST_SERVER = 'http://localhost:3000'
+HOST_CONNECT = 'ws://localhost:3030'

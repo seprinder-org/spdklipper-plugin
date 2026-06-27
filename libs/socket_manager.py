@@ -1,12 +1,10 @@
 import json
-import platform
+import math
 import asyncio
-import logging
 import os
 import socketio
 import sys
 import tracemalloc
-import ssl
 import base64
 from io import BytesIO
 try:
@@ -277,18 +275,41 @@ class scClient(socketio.AsyncClientNamespace):
     async def _run_doJob_background(self, printer, filename, targetJob, targetJobId, session):
         """Chạy doJob trong background task để không block socket event loop.
         
-        Now sends real-time progress updates (elapsed time, filament used) to the server
+        Now sends real-time progress updates (elapsed time, filament used, layer, speed, flow) to the server
         by passing a progress_callback to printer.doJob().
         """
         # Track the last notified print_duration to avoid duplicate final updates
         last_notified_duration = 0
+        # Capture the final progress data so the post-doJob notification can include it
+        final_progress_data = {}
         
         async def progress_callback(progress: dict):
             """Callback được gọi từ printer.doJob() mỗi khi có cập nhật tiến trình."""
-            nonlocal last_notified_duration
+            nonlocal last_notified_duration, final_progress_data
             print_duration = progress.get('print_duration', 0)
             filament_used = progress.get('filament_used', 0)
+            klipper_progress = progress.get('progress')  # 0.0 to 1.0 from virtual_sdcard
             state = progress.get('state', '')
+            current_layer = progress.get('current_layer')
+            total_layer = progress.get('total_layer')
+            speed = progress.get('speed')
+            flow = progress.get('flow')
+            klipper_filename = progress.get('filename', '')
+            total_duration = progress.get('total_duration')  # Klipper's total_duration (wall-clock time including pauses)
+            
+            # Save the latest progress data for use in the post-doJob notification
+            final_progress_data = {
+                'print_duration': print_duration,
+                'filament_used': filament_used,
+                'progress': klipper_progress,
+                'state': state,
+                'total_duration': total_duration,
+                'current_layer': current_layer,
+                'total_layer': total_layer,
+                'speed': speed,
+                'flow': flow,
+                'filename': klipper_filename,
+            }
             
             # Only notify if print_duration has changed (avoid duplicate updates)
             if print_duration != last_notified_duration or state in ('complete', 'error', 'cancelled'):
@@ -305,14 +326,34 @@ class scClient(socketio.AsyncClientNamespace):
                     else:
                         status = 'Printing'  # Still printing
                     
-                    # Send progress update to server
+                    # Calculate estimated total print time from Klipper data.
+                    # Priority 1: Derive from progress ratio (most accurate dynamic estimate).
+                    #   estimated_total = print_duration / progress
+                    #   e.g., 95s / 0.05 = 1900s (~31m40s) at 5% progress
+                    # Priority 2: Use total_duration as fallback (Klipper's wall-clock time).
+                    # This syncs the estimated time with what Klipper/Fluidd would show.
+                    estimated_time = None
+                    if klipper_progress is not None and klipper_progress > 0 and print_duration > 0:
+                        # Estimate total time from current progress: elapsed / progress
+                        estimated_time = int(math.ceil(print_duration / klipper_progress))
+                    elif total_duration is not None and total_duration > 0:
+                        estimated_time = int(math.ceil(total_duration))
+                    
+                    # Send progress update to server with all available Klipper data
                     await cJob.notify(
                         targetJob['v_id'],
                         status,
+                        targetEstimatedPrintingTime=estimated_time,
                         targetPrintDuration=print_duration,
-                        targetFilamentUsed=filament_used
+                        targetFilamentUsed=filament_used,
+                        targetProgress=klipper_progress,
+                        targetCurrentLayer=current_layer,
+                        targetTotalLayer=total_layer,
+                        targetSpeed=speed,
+                        targetFlow=flow,
+                        targetFilename=klipper_filename
                     )
-                    print(f'[Progress] Job {targetJob["v_id"]}: state={state}, duration={print_duration}s, filament={filament_used}mm')
+                    print(f'[Progress] Job {targetJob["v_id"]}: state={state}, duration={print_duration}s, filament={filament_used}mm, progress={klipper_progress}, layer={current_layer}/{total_layer}, speed={speed}, flow={flow}, estimated={estimated_time}')
 
         try:
             rslt = await printer.doJob(
@@ -324,8 +365,32 @@ class scClient(socketio.AsyncClientNamespace):
             await asyncio.sleep(5)
             if rslt:
                 if targetJob:
-                    # Final notification - job is completed
-                    await cJob.notify(targetJob['v_id'], 'Completed')
+                    # Final notification - job is completed.
+                    # Include the last captured progress data so a_note is always
+                    # updated with final values (progress=1.0, print_duration, etc.),
+                    # even if the progress_callback's final update was missed.
+                    # Only send fields that have actual values to avoid overwriting
+                    # a_note with zeros/empty data.
+                    final_pd = final_progress_data.get('print_duration', 0)
+                    final_prog = final_progress_data.get('progress')
+                    final_fil = final_progress_data.get('filament_used', 0)
+                    await cJob.notify(
+                        targetJob['v_id'],
+                        'Completed',
+                        targetEstimatedPrintingTime=(
+                            int(math.ceil(final_pd / final_prog))
+                            if final_prog and final_prog > 0 and final_pd > 0
+                            else None
+                        ),
+                        targetPrintDuration=final_pd if final_pd > 0 else None,
+                        targetFilamentUsed=final_fil if final_fil > 0 else None,
+                        targetProgress=final_prog if final_prog is not None else 1.0,
+                        targetCurrentLayer=final_progress_data.get('current_layer'),
+                        targetTotalLayer=final_progress_data.get('total_layer'),
+                        targetSpeed=final_progress_data.get('speed'),
+                        targetFlow=final_progress_data.get('flow'),
+                        targetFilename=final_progress_data.get('filename') or None,
+                    )
                 await asyncio.sleep(5)
                 await printer.removeFile(filename)
                 print('File is removed.')
@@ -372,11 +437,11 @@ class scClient(socketio.AsyncClientNamespace):
     #     print('Label result:', label, ' - ', 'Filename:', filename)
 
     async def on_checkConnection(self, msg):
-        tempProfileUser = hdl.getSecret('profile_user', 'session')
+        tempProfileUser = await hdl.getSecret('profile_user', 'session')
         if tempProfileUser:
             profileUser = json.loads(tempProfileUser)
         
-        tempProfileMachine = hdl.getSecret('profile_machine', 'session')
+        tempProfileMachine = await hdl.getSecret('profile_machine', 'session')
         if tempProfileMachine:
             profileMachine = json.loads(tempProfileMachine)
         currentPlatform = 'BackBridge'
@@ -497,7 +562,6 @@ def _write_spd_status_file(is_connected: bool):
             import asyncio
             # Use synchronous DB access since we're in an executor
             from src.database.sqlite3 import Secret, engine
-            from sqlmodel import Session, select
             from src.library.handler import base64Encode, decrypt
 
             with Session(engine) as session:
