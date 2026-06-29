@@ -213,11 +213,11 @@ class scClient(socketio.AsyncClientNamespace):
                         file_stream = BytesIO(file_bytes)
                         filename = directFileName if directFileName else f'{targetJobId}.gcode'
                         session = None  # Không cần session cho base64, xử lý trong finally
-                        targetJob = None
+                        targetJob = {'v_id': targetJobId}
                     elif directFileUrl:
                         print(f'Direct print from editor: {targetJobId}, fileUrl: {directFileUrl}')
                         filename, file_stream, session = await hdl.download_file_async(directFileUrl, targetJobId, machineOsName)
-                        targetJob = None
+                        targetJob = {'v_id': targetJobId}
                     else:
                         # In từ đơn hàng thông thường: tra cứu job trong database
                         condition = {
@@ -278,6 +278,9 @@ class scClient(socketio.AsyncClientNamespace):
         Now sends real-time progress updates (elapsed time, filament used, layer, speed, flow) to the server
         by passing a progress_callback to printer.doJob().
         """
+        if not targetJob and targetJobId:
+            targetJob = {'v_id': targetJobId}
+
         # Track the last notified print_duration to avoid duplicate final updates
         last_notified_duration = 0
         # Capture the final progress data so the post-doJob notification can include it
@@ -287,27 +290,17 @@ class scClient(socketio.AsyncClientNamespace):
             """Callback được gọi từ printer.doJob() mỗi khi có cập nhật tiến trình."""
             nonlocal last_notified_duration, final_progress_data
             print_duration = progress.get('print_duration', 0)
-            filament_used = progress.get('filament_used', 0)
             klipper_progress = progress.get('progress')  # 0.0 to 1.0 from virtual_sdcard
             state = progress.get('state', '')
-            current_layer = progress.get('current_layer')
-            total_layer = progress.get('total_layer')
-            speed = progress.get('speed')
-            flow = progress.get('flow')
             klipper_filename = progress.get('filename', '')
             total_duration = progress.get('total_duration')  # Klipper's total_duration (wall-clock time including pauses)
             
             # Save the latest progress data for use in the post-doJob notification
             final_progress_data = {
                 'print_duration': print_duration,
-                'filament_used': filament_used,
                 'progress': klipper_progress,
                 'state': state,
                 'total_duration': total_duration,
-                'current_layer': current_layer,
-                'total_layer': total_layer,
-                'speed': speed,
-                'flow': flow,
                 'filename': klipper_filename,
             }
             
@@ -345,15 +338,10 @@ class scClient(socketio.AsyncClientNamespace):
                         status,
                         targetEstimatedPrintingTime=estimated_time,
                         targetPrintDuration=print_duration,
-                        targetFilamentUsed=filament_used,
                         targetProgress=klipper_progress,
-                        targetCurrentLayer=current_layer,
-                        targetTotalLayer=total_layer,
-                        targetSpeed=speed,
-                        targetFlow=flow,
                         targetFilename=klipper_filename
                     )
-                    print(f'[Progress] Job {targetJob["v_id"]}: state={state}, duration={print_duration}s, filament={filament_used}mm, progress={klipper_progress}, layer={current_layer}/{total_layer}, speed={speed}, flow={flow}, estimated={estimated_time}')
+                    print(f'[Progress] Job {targetJob["v_id"]}: state={state}, duration={print_duration}s, progress={klipper_progress}, estimated={estimated_time}')
 
         try:
             rslt = await printer.doJob(
@@ -373,7 +361,6 @@ class scClient(socketio.AsyncClientNamespace):
                     # a_note with zeros/empty data.
                     final_pd = final_progress_data.get('print_duration', 0)
                     final_prog = final_progress_data.get('progress')
-                    final_fil = final_progress_data.get('filament_used', 0)
                     await cJob.notify(
                         targetJob['v_id'],
                         'Completed',
@@ -383,12 +370,7 @@ class scClient(socketio.AsyncClientNamespace):
                             else None
                         ),
                         targetPrintDuration=final_pd if final_pd > 0 else None,
-                        targetFilamentUsed=final_fil if final_fil > 0 else None,
                         targetProgress=final_prog if final_prog is not None else 1.0,
-                        targetCurrentLayer=final_progress_data.get('current_layer'),
-                        targetTotalLayer=final_progress_data.get('total_layer'),
-                        targetSpeed=final_progress_data.get('speed'),
-                        targetFlow=final_progress_data.get('flow'),
                         targetFilename=final_progress_data.get('filename') or None,
                     )
                 await asyncio.sleep(5)
