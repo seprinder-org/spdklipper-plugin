@@ -275,34 +275,19 @@ class scClient(socketio.AsyncClientNamespace):
     async def _run_doJob_background(self, printer, filename, targetJob, targetJobId, session):
         """Chạy doJob trong background task để không block socket event loop.
         
-        Now sends real-time progress updates (elapsed time, filament used, layer, speed, flow) to the server
+        Now sends real-time progress updates (elapsed time, filament used, temperature) to the server
         by passing a progress_callback to printer.doJob().
         """
-        if not targetJob and targetJobId:
-            targetJob = {'v_id': targetJobId}
-
         # Track the last notified print_duration to avoid duplicate final updates
         last_notified_duration = 0
-        # Capture the final progress data so the post-doJob notification can include it
-        final_progress_data = {}
         
         async def progress_callback(progress: dict):
             """Callback được gọi từ printer.doJob() mỗi khi có cập nhật tiến trình."""
-            nonlocal last_notified_duration, final_progress_data
+            nonlocal last_notified_duration
             print_duration = progress.get('print_duration', 0)
-            klipper_progress = progress.get('progress')  # 0.0 to 1.0 from virtual_sdcard
+            filament_used = progress.get('filament_used', 0)
             state = progress.get('state', '')
-            klipper_filename = progress.get('filename', '')
-            total_duration = progress.get('total_duration')  # Klipper's total_duration (wall-clock time including pauses)
-            
-            # Save the latest progress data for use in the post-doJob notification
-            final_progress_data = {
-                'print_duration': print_duration,
-                'progress': klipper_progress,
-                'state': state,
-                'total_duration': total_duration,
-                'filename': klipper_filename,
-            }
+            temperature = progress.get('temperature', {})
             
             # Only notify if print_duration has changed (avoid duplicate updates)
             if print_duration != last_notified_duration or state in ('complete', 'error', 'cancelled'):
@@ -319,29 +304,16 @@ class scClient(socketio.AsyncClientNamespace):
                     else:
                         status = 'Printing'  # Still printing
                     
-                    # Calculate estimated total print time from Klipper data.
-                    # Priority 1: Derive from progress ratio (most accurate dynamic estimate).
-                    #   estimated_total = print_duration / progress
-                    #   e.g., 95s / 0.05 = 1900s (~31m40s) at 5% progress
-                    # Priority 2: Use total_duration as fallback (Klipper's wall-clock time).
-                    # This syncs the estimated time with what Klipper/Fluidd would show.
-                    estimated_time = None
-                    if klipper_progress is not None and klipper_progress > 0 and print_duration > 0:
-                        # Estimate total time from current progress: elapsed / progress
-                        estimated_time = int(math.ceil(print_duration / klipper_progress))
-                    elif total_duration is not None and total_duration > 0:
-                        estimated_time = int(math.ceil(total_duration))
-                    
-                    # Send progress update to server with all available Klipper data
+                    # Send progress update to server (bao gồm nhiệt độ)
                     await cJob.notify(
                         targetJob['v_id'],
                         status,
-                        targetEstimatedPrintingTime=estimated_time,
                         targetPrintDuration=print_duration,
-                        targetProgress=klipper_progress,
-                        targetFilename=klipper_filename
+                        targetFilamentUsed=filament_used,
+                        targetTemperature=temperature  # Thêm nhiệt độ
                     )
-                    print(f'[Progress] Job {targetJob["v_id"]}: state={state}, duration={print_duration}s, progress={klipper_progress}, estimated={estimated_time}')
+                    print(f'[Progress] Job {targetJob["v_id"]}: state={state}, duration={print_duration}s, '
+                          f'filament={filament_used}mm, temp={temperature}')
 
         try:
             rslt = await printer.doJob(
@@ -353,26 +325,8 @@ class scClient(socketio.AsyncClientNamespace):
             await asyncio.sleep(5)
             if rslt:
                 if targetJob:
-                    # Final notification - job is completed.
-                    # Include the last captured progress data so a_note is always
-                    # updated with final values (progress=1.0, print_duration, etc.),
-                    # even if the progress_callback's final update was missed.
-                    # Only send fields that have actual values to avoid overwriting
-                    # a_note with zeros/empty data.
-                    final_pd = final_progress_data.get('print_duration', 0)
-                    final_prog = final_progress_data.get('progress')
-                    await cJob.notify(
-                        targetJob['v_id'],
-                        'Completed',
-                        targetEstimatedPrintingTime=(
-                            int(math.ceil(final_pd / final_prog))
-                            if final_prog and final_prog > 0 and final_pd > 0
-                            else None
-                        ),
-                        targetPrintDuration=final_pd if final_pd > 0 else None,
-                        targetProgress=final_prog if final_prog is not None else 1.0,
-                        targetFilename=final_progress_data.get('filename') or None,
-                    )
+                    # Final notification - job is completed
+                    await cJob.notify(targetJob['v_id'], 'Completed')
                 await asyncio.sleep(5)
                 await printer.removeFile(filename)
                 print('File is removed.')
@@ -454,26 +408,116 @@ class scClient(socketio.AsyncClientNamespace):
     async def on_replyMessage(self, msg):
         print('Received reply message:', msg)
 
-    # async def on_getInfoMachine(self, msg):
-    #     await self._handle_machine_action('getInfoMachine', msg)
+    async def on_getInfoMachine(self, msg):
+        await self._handle_machine_action('getInfoMachine', msg)
 
-    # async def on_runEjectBed(self, msg):
-    #     await self._handle_machine_action('runEjectBed', msg)
+    async def on_runEjectBed(self, msg):
+        await self._handle_machine_action('runEjectBed', msg)
 
-    # async def on_runShutdown(self, msg):
-    #     await self._handle_machine_action('runShutdown', msg)
+    async def on_runShutdown(self, msg):
+        await self._handle_machine_action('runShutdown', msg)
 
-    # async def on_runRestart(self, msg):
-    #     await self._handle_machine_action('runRestart', msg)
+    async def on_runRestart(self, msg):
+        await self._handle_machine_action('runRestart', msg)
 
-    # async def on_runPause(self, msg):
-    #     await self._handle_machine_action('runPause', msg)
+    async def on_runPause(self, msg):
+        await self._handle_machine_action('runPause', msg)
 
-    # async def on_runResume(self, msg):
-    #     await self._handle_machine_action('runResume', msg)
+    async def on_runResume(self, msg):
+        await self._handle_machine_action('runResume', msg)
 
-    # async def on_runCancel(self, msg):
-    #     await self._handle_machine_action('runCancel', msg)
+    async def on_runCancel(self, msg):
+        await self._handle_machine_action('runCancel', msg)
+
+    async def on_controlCommand(self, msg):
+        """
+        Handle control commands (jog, setExtruderTemp, setBedTemp, emergencyStop, etc.)
+        sent from FrontServer via spdconnect.
+
+        Command format in msg.message.detail:
+          - 'jog x 10 F1500'       → G91 + G1 X10 F1500
+          - 'jog y -5 F3000'       → G91 + G1 Y-5 F3000
+          - 'jog z 1 F600'         → G91 + G1 Z1 F600
+          - 'setExtruderTemp 200'  → M104 S200
+          - 'setBedTemp 60'        → M140 S60
+          - 'emergencyStop'        → M112 (emergency stop)
+        """
+        tempProfileMachine = await hdl.getSecret('profile_machine', 'session')
+        if not tempProfileMachine:
+            print('[controlCommand] No machine profile found.')
+            return
+
+        profileMachine = json.loads(tempProfileMachine)
+        printer, machineOsName = await self._get_printer(profileMachine)
+        if not printer:
+            print('[controlCommand] No printer instance available.')
+            return
+
+        jsMsg = json.loads(msg)
+        command_str = jsMsg.get('message', {}).get('detail', '').strip()
+        if not command_str:
+            print('[controlCommand] Empty command string.')
+            return
+
+        print(f'[controlCommand] Received: "{command_str}" for {machineOsName}')
+
+        try:
+            parts = command_str.split()
+            cmd_type = parts[0].lower()
+
+            if cmd_type == 'jog':
+                # Format: jog <axis> <distance> F<speed>
+                # e.g. 'jog x 10 F1500'
+                if len(parts) >= 3:
+                    axis = parts[1].lower()
+                    distance = parts[2]
+                    speed = '1500'
+                    for p in parts[3:]:
+                        if p.startswith('f'):
+                            speed = p[1:]
+                    # Relative positioning + move
+                    gcode = f'G91\nG1 {axis.upper()}{distance} F{speed}\nG90'
+                    await printer.runScript(gcode)
+                    print(f'[controlCommand] Jog {axis} {distance} F{speed}')
+                else:
+                    print(f'[controlCommand] Invalid jog format: {command_str}')
+
+            elif cmd_type == 'setextrudertemp':
+                # Format: setExtruderTemp <temp>
+                if len(parts) >= 2:
+                    temp = parts[1]
+                    gcode = f'M104 S{temp}'
+                    await printer.runScript(gcode)
+                    print(f'[controlCommand] Set extruder temp to {temp}°C')
+                else:
+                    print(f'[controlCommand] Invalid setExtruderTemp format: {command_str}')
+
+            elif cmd_type == 'setbedtemp':
+                # Format: setBedTemp <temp>
+                if len(parts) >= 2:
+                    temp = parts[1]
+                    gcode = f'M140 S{temp}'
+                    await printer.runScript(gcode)
+                    print(f'[controlCommand] Set bed temp to {temp}°C')
+                else:
+                    print(f'[controlCommand] Invalid setBedTemp format: {command_str}')
+
+            elif cmd_type == 'emergencystop':
+                # M112 - Emergency stop
+                await printer.runScript('M112')
+                print('[controlCommand] Emergency stop (M112)')
+
+            else:
+                # Unknown command - try sending as raw G-code
+                print(f'[controlCommand] Unknown command type: "{cmd_type}", sending as raw G-code')
+                await printer.runScript(command_str)
+
+            # Reply success
+            await self._reply('controlCommand', {'status': 'success', 'command': command_str}, msg)
+
+        except Exception as e:
+            print(f'[controlCommand] Error executing command "{command_str}": {e}')
+            await self._reply('controlCommand', {'status': 'error', 'error': str(e)}, msg)
 
 
 class SocketClientManager:

@@ -29,7 +29,7 @@ async def readCondition(*args):
     rslt = await hdl.asyncRequestWithAccess(url, jsData)
     return rslt
 
-async def notify(targetId, targetStatus, targetEstimatedPrintingTime=None, targetPrintDuration=None, targetProgress=None, targetFilename=None):
+async def notify(targetId, targetStatus, targetEstimatedPrintingTime=None, targetFilamentUsed=None, targetTemperature=None):
     jsData = {
         'target': 'job',
         'action': 'notify',
@@ -39,13 +39,10 @@ async def notify(targetId, targetStatus, targetEstimatedPrintingTime=None, targe
     import math
     if targetEstimatedPrintingTime is not None:
         jsData['targetEstimatedPrintingTime'] = int(math.ceil(float(targetEstimatedPrintingTime)))
-    if targetPrintDuration is not None:
-        jsData['targetPrintDuration'] = int(math.ceil(float(targetPrintDuration)))
-    if targetProgress is not None:
-        # Send progress as float (0.0 to 1.0) - no rounding, keep precision
-        jsData['targetProgress'] = float(targetProgress)
-    if targetFilename is not None:
-        jsData['targetFilename'] = str(targetFilename)
+    if targetFilamentUsed is not None:
+        jsData['targetFilamentUsed'] = int(math.ceil(float(targetFilamentUsed)))
+    if targetTemperature is not None:
+        jsData['targetTemperature'] = targetTemperature
 
     print(f"[cJob.notify] Sending to server: {jsData}")
     url = f'{hostServer}/backend'

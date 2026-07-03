@@ -37,23 +37,11 @@ class BasePrinter(ABC):
         Default implementation for basic job execution loop.
         Chạy trong background task (create_task) để không block các sự kiện socket khác.
         
-        Now tracks real-time progress from Klipper's print_stats and virtual_sdcard:
-        - print_duration (elapsed time)
-        - progress (0.0 to 1.0 from virtual_sdcard)
-        - state (printing -> complete)
-        - filename (from print_stats.filename)
-        
-        Calls progress_callback (if provided in kwargs) periodically with:
-        {
-            'print_duration': float,  # seconds
-            'progress': float,        # 0.0 to 1.0 from virtual_sdcard
-            'state': str,             # printing/complete/error
-            'total_duration': float,  # total time including non-printing
-            'filename': str,          # current printing filename
-        }
+        Trong mỗi vòng lặp kiểm tra, thu thập nhiệt độ đầu in và bàn in,
+        sau đó gọi progress_callback (nếu có) để gửi dữ liệu về server.
         """
         rslt = False
-        progress_callback = kwargs.get('progress_callback', None)
+        progress_callback = kwargs.get('progress_callback')
         
         # Start the print job
         started = await self.printModel(filename, **kwargs)
@@ -73,109 +61,33 @@ class BasePrinter(ABC):
             # Check status every 5 seconds for more responsive progress tracking
             await asyncio.sleep(5)
             
-            # Get real-time print stats from Klipper
-            try:
-                # Use the detailed stats query that includes gcode_move and toolhead
-                detail_data = {}
+            # Thu thập nhiệt độ hiện tại và gửi qua callback
+            if progress_callback:
                 try:
-                    detail_data = await self.getPrintStatsDetail()
-                except Exception:
-                    pass  # detailed endpoint may not be available on older Klipper versions
-                
-                # Fallback to individual queries if detail fails
-                if not detail_data or 'result' not in detail_data:
+                    temp_data = await self.getTemperature()
                     print_stat = await self.getPrintStat()
-                    progress_data = {}
+                    
+                    # Trích xuất thông tin từ print_stat
+                    print_stats_status = {}
                     try:
-                        progress_data = await self.getPrintProgress()
-                    except Exception:
+                        print_stats_status = print_stat['result']['status']['print_stats']
+                    except (KeyError, TypeError):
                         pass
-                    detail_data = print_stat if print_stat else {}
-                    if progress_data and 'result' in progress_data:
-                        if 'result' not in detail_data:
-                            detail_data['result'] = {'status': {}}
-                        if 'status' not in detail_data['result']:
-                            detail_data['result']['status'] = {}
-                        if 'virtual_sdcard' in progress_data['result'].get('status', {}):
-                            detail_data['result']['status']['virtual_sdcard'] = progress_data['result']['status']['virtual_sdcard']
-                
-                if detail_data and 'result' in detail_data and 'status' in detail_data['result']:
-                    status_data = detail_data['result']['status']
-                    stats = status_data.get('print_stats', {})
-                    state = stats.get('state', '')
-                    print_duration = stats.get('print_duration', 0)
-                    total_duration = stats.get('total_duration', 0)
                     
-                    # Extract progress from virtual_sdcard (0.0 to 1.0)
-                    progress = None
-                    v_sdcard = status_data.get('virtual_sdcard', {})
-                    if v_sdcard:
-                        progress = v_sdcard.get('progress')
-                    
-                    # Get filename from print_stats
-                    klipper_filename = stats.get('filename', '')
-                    
-                    # Send progress update periodically
-                    now = asyncio.get_event_loop().time()
-                    if progress_callback and (now - last_notify_time >= notify_interval):
-                        last_notify_time = now
-                        await progress_callback({
-                            'print_duration': print_duration,
-                            'progress': progress,
-                            'state': state,
-                            'total_duration': total_duration,
-                            'filename': klipper_filename,
-                        })
-                    
-                    # Check if print is complete
-                    if state == 'complete':
-                        isCompleted = True
-                        rslt = True
-                        # Send final progress update with completed state
-                        if progress_callback:
-                            await progress_callback({
-                                'print_duration': print_duration,
-                                'progress': 1.0,  # Force 100% on completion
-                                'state': 'complete',
-                                'total_duration': total_duration,
-                                'filename': klipper_filename,
-                            })
-                    elif state == 'error':
-                        print(f'[doJob] Print error: {stats.get("message", "")}')
-                        isCompleted = True
-                        rslt = False
-                        if progress_callback:
-                            await progress_callback({
-                                'print_duration': print_duration,
-                                'progress': progress,
-                                'state': 'error',
-                                'total_duration': total_duration,
-                                'filename': klipper_filename,
-                            })
-                    elif state == 'cancelled':
-                        print('[doJob] Print was cancelled.')
-                        isCompleted = True
-                        rslt = False
-                        if progress_callback:
-                            await progress_callback({
-                                'print_duration': print_duration,
-                                'progress': progress,
-                                'state': 'cancelled',
-                                'total_duration': total_duration,
-                                'filename': klipper_filename,
-                            })
-                    # If 'printing', continue loop
-                else:
-                    # Fallback to isReadyState if print_stats not available
-                    if await self.isReadyState():
-                        isCompleted = True
-                        rslt = True
-            except Exception as e:
-                print(f'[doJob] Error checking print status: {e}')
-                # Fallback to isReadyState on error
-                if await self.isReadyState():
-                    isCompleted = True
-                    rslt = True
+                    progress = {
+                        'temperature': temp_data,
+                        'print_duration': print_stats_status.get('print_duration', 0),
+                        'filament_used': print_stats_status.get('filament_used', 0),
+                        'state': print_stats_status.get('state', ''),
+                    }
+                    await progress_callback(progress)
+                except Exception as e:
+                    print(f'[doJob] Error collecting progress data: {e}')
+            
+            # Check if printer is ready (meaning job finished)
+            if await self.isReadyState():
+                isCompleted = True
+                rslt = True
                 
         return rslt
 
