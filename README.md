@@ -1,4 +1,4 @@
-# SPD Klipper Plugin (SePrinder Klipper Plugin)
+# SPD Klipper Plugin (SePrinder Klipper Plugin) 
 
 SPD Klipper Plugin là phần mềm trung gian (agent) đóng vai trò kết nối trực tiếp các máy in 3D với hệ thống máy chủ **SPD Server** và **SPD Connect** trong hệ sinh thái SePrinder.
 
