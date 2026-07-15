@@ -36,8 +36,12 @@ class BasePrinter(ABC):
         """
         Default implementation for basic job execution loop.
         Chạy trong background task (create_task) để không block các sự kiện socket khác.
+        
+        Trong mỗi vòng lặp kiểm tra, thu thập nhiệt độ đầu in và bàn in,
+        sau đó gọi progress_callback (nếu có) để gửi dữ liệu về server.
         """
         rslt = False
+        progress_callback = kwargs.get('progress_callback')
         
         # Start the print job
         started = await self.printModel(filename, **kwargs)
@@ -45,11 +49,40 @@ class BasePrinter(ABC):
         if started == False:
             return False
 
-        # Loop to check for completion
+        # Wait a moment for Klipper to register the print state
+        await asyncio.sleep(3)
+
+        # Loop to check for completion with real-time progress tracking
         isCompleted = False
+        last_notify_time = 0
+        notify_interval = 10  # seconds between progress notifications
+        
         while not isCompleted:
-            # Check status every 15 seconds
-            await asyncio.sleep(15)
+            # Check status every 5 seconds for more responsive progress tracking
+            await asyncio.sleep(5)
+            
+            # Thu thập nhiệt độ hiện tại và gửi qua callback
+            if progress_callback:
+                try:
+                    temp_data = await self.getTemperature()
+                    print_stat = await self.getPrintStat()
+                    
+                    # Trích xuất thông tin từ print_stat
+                    print_stats_status = {}
+                    try:
+                        print_stats_status = print_stat['result']['status']['print_stats']
+                    except (KeyError, TypeError):
+                        pass
+                    
+                    progress = {
+                        'temperature': temp_data,
+                        'print_duration': print_stats_status.get('print_duration', 0),
+                        'filament_used': print_stats_status.get('filament_used', 0),
+                        'state': print_stats_status.get('state', ''),
+                    }
+                    await progress_callback(progress)
+                except Exception as e:
+                    print(f'[doJob] Error collecting progress data: {e}')
             
             # Check if printer is ready (meaning job finished)
             if await self.isReadyState():

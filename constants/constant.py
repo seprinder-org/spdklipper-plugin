@@ -12,3 +12,7 @@ SPD_SECRET_KEY = '' # Optional: master key
 # Production SPD servers
 HOST_CONNECT = 'wss://connect.seprinder.com'
 HOST_SERVER = 'https://seprinder.com'
+
+# # local
+# HOST_SERVER = 'http://localhost:3000'
+# HOST_CONNECT = 'ws://localhost:3030'

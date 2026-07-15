@@ -30,11 +30,39 @@ class KlipperPrinter(BasePrinter):
         return val
 
     async def getTemperature(self):
+        """
+        Lấy nhiệt độ hiện tại của đầu in (extruder) và bàn in (heater_bed).
+        Sử dụng API /printer/objects/query để lấy dữ liệu real-time.
+        Trả về dict dạng:
+        {
+            'extruder': {'temperature': 200.0, 'target': 210.0},
+            'heater_bed': {'temperature': 60.0, 'target': 60.0}
+        }
+        """
         val = {}
-        url = f'{self.address_control}/server/temperature_store?include_monitors=false'
+        url = f'{self.address_control}/printer/objects/query?extruder&heater_bed'
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as res:
-                val = await res.json()
+                if res.status == 200:
+                    data = await res.json()
+                    result = data.get('result', {})
+                    status = result.get('status', {})
+                    
+                    # Extract extruder temperature
+                    extruder = status.get('extruder', {})
+                    if extruder:
+                        val['extruder'] = {
+                            'temperature': extruder.get('temperature', 0),
+                            'target': extruder.get('target', 0)
+                        }
+                    
+                    # Extract heater_bed temperature
+                    heater_bed = status.get('heater_bed', {})
+                    if heater_bed:
+                        val['heater_bed'] = {
+                            'temperature': heater_bed.get('temperature', 0),
+                            'target': heater_bed.get('target', 0)
+                        }
         return val
 
     async def runHome(self):
@@ -73,6 +101,31 @@ class KlipperPrinter(BasePrinter):
     async def getPrintStat(self):
         val = {}
         url = f'{self.address_control}/printer/objects/query?print_stats'
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as res:
+                val = await res.json()
+        return val
+
+    async def getPrintProgress(self):
+        """
+        Query Klipper's virtual_sdcard for progress data (0.0 to 1.0).
+        Returns dict with 'progress' key, or empty dict on failure.
+        """
+        val = {}
+        url = f'{self.address_control}/printer/objects/query?virtual_sdcard'
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as res:
+                val = await res.json()
+        return val
+
+    async def getPrintStatsDetail(self):
+        """
+        Query detailed print stats including layer info, speed, flow, filament.
+        Queries multiple Klipper objects in a single request.
+        Returns dict with print_stats, gcode_move, and toolhead data.
+        """
+        val = {}
+        url = f'{self.address_control}/printer/objects/query?print_stats&gcode_move&toolhead&display_status'
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as res:
                 val = await res.json()
@@ -236,6 +289,32 @@ class KlipperPrinter(BasePrinter):
             async with session.post(url) as res:
                 val = await res.json()
         
+        if val.get('result') == 'ok':
+            rslt = True
+        return rslt
+
+    async def runEjectBed(self):
+        """Eject bed - for Klipper, this typically moves the bed forward."""
+        rslt = False
+        val = {}
+        # Use relative positioning, move Y forward (or use a macro if defined)
+        gcode = 'G91\nG1 Y200 F3000\nG90'
+        url = f'{self.address_control}/printer/gcode/script?script={gcode}'
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url) as res:
+                val = await res.json()
+        if val.get('result') == 'ok':
+            rslt = True
+        return rslt
+
+    async def runShutdown(self):
+        """Shutdown the printer via Klipper."""
+        rslt = False
+        val = {}
+        url = f'{self.address_control}/printer/gcode/script?script=M112'
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url) as res:
+                val = await res.json()
         if val.get('result') == 'ok':
             rslt = True
         return rslt
