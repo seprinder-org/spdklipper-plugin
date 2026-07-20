@@ -19,7 +19,7 @@ from datetime import datetime
 from src.library import handler as hdl
 
 from src.library import exception as exp
-from src.controller import cJob, cStorage, cSlicer, cMachineOs
+from src.controller import cJob, cStorage, cSlicer, cMachineOs, cMachine
 
 from constants.constant import HOST_CONNECT, PATH
 
@@ -60,6 +60,8 @@ class scClient(socketio.AsyncClientNamespace):
     def on_disconnect(self):
         print(f'Disconnected from Socket.IO server.')
         asyncio.create_task(update_socket_status_in_db(False))
+        # Update machine status to Offline on the server
+        asyncio.create_task(_update_machine_status('Offline'))
 
     async def on_confirm(self, msg):
         global isAmsUsed
@@ -96,6 +98,8 @@ class scClient(socketio.AsyncClientNamespace):
 
         print('BackServer: Connected successfully')
         asyncio.create_task(update_socket_status_in_db(True))
+        # Update machine status to Online on the server
+        asyncio.create_task(_update_machine_status('Online'))
 
     # Các hàm xử lý các sự kiện socket khác (rút gọn giữ nguyên logic)
     async def _reply(self, action, res, msg):
@@ -619,6 +623,32 @@ def _write_spd_status_file(is_connected: bool):
             json.dump(status_data, f)
     except Exception as e:
         print(f"[SPD Status] Error writing status file: {e}")
+
+
+async def _update_machine_status(status: str):
+    """Update the machine's v_status on the spdserver via API.
+    
+    Called when the socket connects (status='Online') or disconnects (status='Offline').
+    This updates the remote PostgreSQL database so the frontend shows the correct status.
+    """
+    try:
+        profileMachine = await hdl.getSecret('profile_machine', 'session')
+        if not profileMachine:
+            print(f"[Machine Status] Cannot update status to '{status}': no profile_machine found")
+            return
+        machine = json.loads(profileMachine)
+        machineId = machine.get('v_id', '')
+        if not machineId:
+            print(f"[Machine Status] Cannot update status to '{status}': no machine ID")
+            return
+        rslt = await cMachine.updateOne(machineId, {'v_status': status})
+        if 'error' in rslt:
+            print(f"[Machine Status] Failed to update machine '{machineId}' status to '{status}': {rslt['error']}")
+        else:
+            print(f"[Machine Status] Machine '{machineId}' status updated to '{status}' successfully")
+    except Exception as e:
+        print(f"[Machine Status] Error updating machine status to '{status}': {e}")
+
 
 # Entry point
 async def _connect_to_socketio(client):

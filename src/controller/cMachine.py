@@ -62,8 +62,25 @@ async def readCondition(*args):
 def createOne():
     pass
 
-def updateOne():
-    pass
+async def updateOne(machineId: str, record: dict):
+    """Update a machine record via the spdserver backend API.
+    
+    Args:
+        machineId: The v_id of the machine to update.
+        record: Dictionary of fields to update (e.g., {'v_status': 'Online'}).
+    
+    Returns:
+        The API response result.
+    """
+    jsData = {
+        'target': 'machine',
+        'action': 'updateOne',
+        'id': machineId,
+        'record': record,
+    }
+    url = f'{hostServer}/backend'
+    rslt = await hdl.asyncRequestWithAccess(url, jsData)
+    return rslt
 
 def deleteOne():
     pass
