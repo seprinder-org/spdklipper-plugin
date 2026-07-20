@@ -507,6 +507,11 @@ class scClient(socketio.AsyncClientNamespace):
                 await printer.runScript('M112')
                 print('[controlCommand] Emergency stop (M112)')
 
+            elif cmd_type == 'cancelprint':
+                # Cancel current print via Klipper API
+                await printer.runCancel()
+                print('[controlCommand] Cancel print')
+
             else:
                 # Unknown command - try sending as raw G-code
                 print(f'[controlCommand] Unknown command type: "{cmd_type}", sending as raw G-code')
