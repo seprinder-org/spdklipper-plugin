@@ -507,6 +507,11 @@ class scClient(socketio.AsyncClientNamespace):
                 await printer.runScript('M112')
                 print('[controlCommand] Emergency stop (M112)')
 
+            elif cmd_type == 'firmwarerestart':
+                # Firmware restart via Klipper API
+                await printer.runRestart()
+                print('[controlCommand] Firmware restart')
+
             else:
                 # Unknown command - try sending as raw G-code
                 print(f'[controlCommand] Unknown command type: "{cmd_type}", sending as raw G-code')
