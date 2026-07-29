@@ -29,6 +29,18 @@ class KlipperPrinter(BasePrinter):
                 val = await res.json()
         return val
 
+    async def getServerInfo(self):
+        """
+        Query Klipper's /server/info endpoint for server status.
+        Returns dict with 'klippy_connected' (bool), 'klippy_state', etc.
+        """
+        val = {}
+        url = f'{self.address_control}/server/info'
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as res:
+                val = await res.json()
+        return val
+
     async def getTemperature(self):
         """
         Lấy nhiệt độ hiện tại của đầu in (extruder) và bàn in (heater_bed).
