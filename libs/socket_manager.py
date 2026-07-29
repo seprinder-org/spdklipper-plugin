@@ -515,6 +515,10 @@ class scClient(socketio.AsyncClientNamespace):
                 # Cancel current print via Klipper API
                 await printer.runCancel()
                 print('[controlCommand] Cancel print')
+            elif cmd_type == 'firmwarerestart':
+                # Firmware restart via Klipper API
+                await printer.runRestart()
+                print('[controlCommand] Firmware restart')
 
             else:
                 # Unknown command - try sending as raw G-code
